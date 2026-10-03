@@ -93,7 +93,7 @@ func (s *Server) setStopped(session string, stopped bool) {
 	}
 	s.mu.Unlock()
 	e := Entry{Client: a.Client, Session: session, App: a.App, BundleID: a.BundleID,
-		Action: "resume", Decision: "allow", Rule: RuleUser}
+		TeamID: a.TeamID, Action: "resume", Decision: "allow", Rule: RuleUser}
 	if stopped {
 		e.Action, e.Decision = "stop", "deny"
 	}
@@ -105,7 +105,7 @@ func (s *Server) recordActivity(c approval.Caller, app proto.App, action string)
 	s.mu.Lock()
 	s.activity[c.Session] = Activity{
 		Client: c.Client, Session: c.Session, App: app.Name, BundleID: app.BundleID,
-		Action: action, At: s.Now().UTC(),
+		TeamID: app.TeamID, Action: action, At: s.Now().UTC(),
 	}
 	s.mu.Unlock()
 	s.notify()

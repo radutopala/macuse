@@ -88,6 +88,7 @@ type Activity struct {
 	Session  string    `json:"session"`
 	App      string    `json:"app"`
 	BundleID string    `json:"bundle_id"`
+	TeamID   string    `json:"team_id,omitempty"`
 	Action   string    `json:"action"`
 	At       time.Time `json:"at"`
 	Stopped  bool      `json:"stopped,omitempty"`

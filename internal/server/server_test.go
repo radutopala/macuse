@@ -479,8 +479,8 @@ func (s *ServerSuite) TestStopAndResumeAreAudited() {
 
 	at := t0.UTC()
 	require.Equal(s.T(), []Entry{
-		{Time: at, Client: "claude", Session: "s1", App: notes.Name, BundleID: notes.BundleID, Action: "stop", Decision: "deny", Rule: RuleUser},
-		{Time: at, Client: "claude", Session: "s1", App: notes.Name, BundleID: notes.BundleID, Action: "resume", Decision: "allow", Rule: RuleUser},
+		{Time: at, Client: "claude", Session: "s1", App: notes.Name, BundleID: notes.BundleID, TeamID: notes.TeamID, Action: "stop", Decision: "deny", Rule: RuleUser},
+		{Time: at, Client: "claude", Session: "s1", App: notes.Name, BundleID: notes.BundleID, TeamID: notes.TeamID, Action: "resume", Decision: "allow", Rule: RuleUser},
 		{Time: at, Session: "nobody", Action: "stop", Decision: "deny", Rule: RuleUser},
 	}, s.auditLines())
 }
