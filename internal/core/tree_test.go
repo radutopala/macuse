@@ -56,6 +56,42 @@ func (s *TreeSuite) TestCenter() {
 	require.Equal(s.T(), Point{60, 45}, Rect{10, 20, 100, 50}.Center())
 }
 
+func (s *TreeSuite) TestUnion() {
+	win := Rect{100, 50, 100, 50}
+	tests := []struct {
+		name string
+		r, o Rect
+		want Rect
+	}{
+		{name: "popover past the bottom", r: win, o: Rect{150, 90, 60, 40}, want: Rect{100, 50, 110, 80}},
+		{name: "inside", r: win, o: Rect{110, 60, 10, 10}, want: win},
+		{name: "empty first", r: Rect{}, o: win, want: win},
+		{name: "empty second", r: win, o: Rect{X: 5, Y: 5}, want: win},
+	}
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			require.Equal(s.T(), tc.want, tc.r.Union(tc.o))
+		})
+	}
+}
+
+func (s *TreeSuite) TestClips() {
+	win := Rect{0, 0, 100, 100}
+	pop := Rect{50, 90, 40, 40}
+	root := &Node{Role: "AXWindow", Children: []*Node{
+		{Role: "AXButton"},
+		{Role: rolePopover, Frame: pop, Children: []*Node{
+			{Role: "AXButton", Frame: Rect{60, 110, 10, 10}},
+		}},
+		// A popover without a frame can't clip.
+		{Role: rolePopover, Children: []*Node{{Role: "AXButton"}}},
+		{Role: "AXButton"},
+	}}
+	clips, bounds := Clips(Flatten(root), win)
+	require.Equal(s.T(), []Rect{win, win, pop, pop, win, win, win}, clips)
+	require.Equal(s.T(), Rect{0, 0, 100, 130}, bounds)
+}
+
 func (s *TreeSuite) TestIntersect() {
 	win := Rect{100, 50, 100, 50}
 	tests := []struct {

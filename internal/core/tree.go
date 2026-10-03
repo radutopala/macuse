@@ -26,6 +26,19 @@ func (r Rect) Intersect(o Rect) (Rect, bool) {
 	return Rect{x1, y1, x2 - x1, y2 - y1}, true
 }
 
+// Union is the smallest frame holding both; an empty frame adds nothing.
+func (r Rect) Union(o Rect) Rect {
+	if r.W <= 0 || r.H <= 0 {
+		return o
+	}
+	if o.W <= 0 || o.H <= 0 {
+		return r
+	}
+	x1, y1 := min(r.X, o.X), min(r.Y, o.Y)
+	x2, y2 := max(r.X+r.W, o.X+o.W), max(r.Y+r.H, o.Y+o.H)
+	return Rect{x1, y1, x2 - x1, y2 - y1}
+}
+
 // Node is one accessibility element as the platform reports it. Ref is the
 // platform's handle for the element, valid until the platform releases it.
 type Node struct {
@@ -78,6 +91,32 @@ func Flatten(root *Node) []Element {
 		walk(root, 0)
 	}
 	return out
+}
+
+const rolePopover = "AXPopover"
+
+// Clips finds where each element can show: inside its popover, which may
+// hang past the window's edge, or else inside the window. bounds holds the
+// window and every popover, the area a screenshot needs.
+func Clips(elems []Element, window Rect) (clips []Rect, bounds Rect) {
+	clips = make([]Rect, len(elems))
+	bounds = window
+	// open holds the popovers enclosing the current element, innermost last.
+	var open []Element
+	for i, e := range elems {
+		for len(open) > 0 && open[len(open)-1].Depth >= e.Depth {
+			open = open[:len(open)-1]
+		}
+		if f := e.Node.Frame; e.Node.Role == rolePopover && f.W > 0 && f.H > 0 {
+			open = append(open, e)
+			bounds = bounds.Union(f)
+		}
+		clips[i] = window
+		if len(open) > 0 {
+			clips[i] = open[len(open)-1].Node.Frame
+		}
+	}
+	return clips, bounds
 }
 
 // Refs collects every element's platform handle.

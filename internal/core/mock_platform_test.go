@@ -30,6 +30,11 @@ func (m *mockPlatform) FocusedWindow(app proto.App) (Window, error) {
 	return args.Get(0).(Window), args.Error(1)
 }
 
+func (m *mockPlatform) Windows(app proto.App) []uint32 {
+	ids, _ := m.Called(app).Get(0).([]uint32)
+	return ids
+}
+
 func (m *mockPlatform) Tree(win Window, lim Limits) (*Node, bool, error) {
 	args := m.Called(win, lim)
 	root, _ := args.Get(0).(*Node)

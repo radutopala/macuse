@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -337,7 +338,7 @@ func (p *Platform) FocusedWindow(app proto.App) (win core.Window, err error) {
 			err = &proto.Error{Code: proto.CodeAppNotFound, Message: app.Name + " has no open window"}
 			return
 		}
-		win = core.Window{Title: p.stringAttr(ref, "AXTitle"), Frame: p.frame(ref), Ref: ref}
+		win = core.Window{Title: p.stringAttr(ref, "AXTitle"), Frame: p.frame(ref), Ref: ref, PID: app.PID}
 		if p.l.axUIElementGetWindow != nil {
 			p.l.axUIElementGetWindow(ref, &win.ID)
 		}
@@ -411,8 +412,9 @@ func (p *Platform) Tree(win core.Window, lim core.Limits) (root *core.Node, trun
 	return root, truncated, nil
 }
 
-// Capture grabs the window alone when its id is known, else whatever is on
-// screen within its frame.
+// Capture grabs the app's windows alone when the window's id is known, so a
+// popover, a window of its own, shows with it; else whatever is on screen
+// within the frame.
 func (p *Platform) Capture(win core.Window) (img image.Image, err error) {
 	p.do(func() {
 		if !p.l.CGPreflightScreenCaptureAccess() {
@@ -428,9 +430,15 @@ func (p *Platform) Capture(win core.Window) (img image.Image, err error) {
 			opts, id = kCGWindowListOptionIncludingWindow, win.ID
 		}
 		frame := win.Frame
-		ref := p.l.CGWindowListCreateImage(
-			cgRect{cgPoint{frame.X, frame.Y}, cgSize{frame.W, frame.H}},
-			opts, id, kCGWindowImageDefault)
+		rect := cgRect{cgPoint{frame.X, frame.Y}, cgSize{frame.W, frame.H}}
+		var ref uintptr
+		if list := p.appWindows(win); list != 0 {
+			ref = p.l.CGWindowListCreateImageFromArray(rect, list, kCGWindowImageDefault)
+			p.l.CFRelease(list)
+		}
+		if ref == 0 {
+			ref = p.l.CGWindowListCreateImage(rect, opts, id, kCGWindowImageDefault)
+		}
 		if ref == 0 {
 			err = fmt.Errorf("screen capture returned no image")
 			return
@@ -439,6 +447,56 @@ func (p *Platform) Capture(win core.Window) (img image.Image, err error) {
 		img = p.toRGBA(ref)
 	})
 	return img, err
+}
+
+// Windows lists the ids of the app's on-screen windows, front to back.
+func (p *Platform) Windows(app proto.App) (ids []uint32) {
+	p.do(func() { ids = p.windowIDs(app.PID) })
+	return ids
+}
+
+func (p *Platform) windowIDs(pid int) []uint32 {
+	info := p.l.CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+	if info == 0 {
+		return nil
+	}
+	defer p.l.CFRelease(info)
+	var ids []uint32
+	for i := range p.l.CFArrayGetCount(info) {
+		desc := p.l.CFArrayGetValueAtIndex(info, i)
+		if p.number(desc, p.l.kCGWindowOwnerPID) == float64(pid) {
+			ids = append(ids, uint32(p.number(desc, p.l.kCGWindowNumber)))
+		}
+	}
+	return ids
+}
+
+// appWindows lists the on-screen windows of the window's app, front to back,
+// as a CFArray the caller releases; 0 when the window isn't among them.
+func (p *Platform) appWindows(win core.Window) uintptr {
+	if win.ID == 0 || p.l.CGWindowListCreateImageFromArray == nil {
+		return 0
+	}
+	ids := p.windowIDs(win.PID)
+	if !slices.Contains(ids, win.ID) {
+		return 0
+	}
+	// A window id is stored as the value itself, so no callbacks.
+	values := make([]uintptr, len(ids))
+	for i, id := range ids {
+		values[i] = uintptr(id)
+	}
+	return p.l.CFArrayCreate(0, &values[0], int64(len(values)), 0)
+}
+
+// number reads a dictionary's number, -1 when it has none.
+func (p *Platform) number(dict, key uintptr) float64 {
+	v := p.l.CFDictionaryGetValue(dict, key)
+	var f float64
+	if v == 0 || p.l.CFGetTypeID(v) != p.typeIDs.number || !p.l.CFNumberGetValue(v, kCFNumberDoubleType, &f) {
+		return -1
+	}
+	return f
 }
 
 func (p *Platform) toRGBA(ref uintptr) *image.RGBA {
@@ -468,6 +526,10 @@ func (p *Platform) Press(ref uintptr) (err error) {
 		case kAXErrorSuccess:
 		case kAXErrorCannotComplete:
 			err = fmt.Errorf("press: %w", core.ErrNoReply)
+		case kAXErrorFailure:
+			// Some elements, like Freeform's color swatches, list the
+			// press and fail it without acting, so a click can stand in.
+			err = &proto.Error{Code: proto.CodeUnsupported, Message: "the element refused the press"}
 		default:
 			err = axError(code, "press")
 		}

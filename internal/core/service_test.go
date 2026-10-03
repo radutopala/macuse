@@ -89,6 +89,7 @@ func (s *ServiceSuite) foreground(restore bool) {
 	s.p.On("Activate", textEdit).Return(nil).Once()
 	s.p.On("Frontmost", textEdit).Return(true).Once()
 	if restore {
+		s.p.On("Windows", textEdit).Return([]uint32{5}).Twice()
 		s.p.On("Activate", finder).Return(nil).Once()
 	}
 }
@@ -620,6 +621,7 @@ func (s *ServiceSuite) TestForegroundWaitsForTheAppToComeForward() {
 	s.p.On("Frontmost", textEdit).Return(false).Twice()
 	s.p.On("Frontmost", textEdit).Return(true).Once()
 	s.p.On("Key", Combo{Key: "a"}).Return(nil)
+	s.p.On("Windows", textEdit).Return([]uint32{5}).Twice()
 	s.p.On("Activate", finder).Return(nil).Once()
 	var res proto.ActionResult
 	s.ok(s.act(proto.ActionParams{Action: proto.ActionKey, Keys: "a", Foreground: true}), &res)
@@ -649,6 +651,48 @@ func (s *ServiceSuite) TestRefusedPressOutsideTheWindow() {
 	s.fails(s.act(proto.ActionParams{Action: proto.ActionClick, Index: 3}), proto.CodeElementNotFound, "element [3] is outside the window")
 }
 
+func (s *ServiceSuite) TestPopoverPastTheWindowEdge() {
+	// The popover hangs below the window {100,50,100,50}; its swatch
+	// {160,105,10,10} lies wholly outside the window.
+	tree := &Node{Role: "AXWindow", Ref: 1, Children: []*Node{
+		{Role: rolePopover, Frame: Rect{150, 90, 60, 40}, Ref: 2, Children: []*Node{
+			{Role: "AXButton", Name: "orange", Actions: []string{axPress}, Frame: Rect{160, 105, 10, 10}, Ref: 3},
+		}},
+	}}
+	shot := testWin
+	shot.Frame = Rect{100, 50, 110, 80}
+	s.running()
+	s.p.On("FocusedWindow", textEdit).Return(testWin, nil).Once()
+	s.p.On("Release", []uintptr{9}).Once()
+	s.p.On("Tree", testWin, DefaultLimits).Return(tree, false, nil).Once()
+	s.p.On("Capture", shot).Return(solid(220, 160), nil).Once()
+	var st proto.State
+	s.ok(s.call(proto.MethodGetState, proto.GetStateParams{BundleID: textEdit.BundleID, Capture: proto.CaptureBoth}), &st)
+	require.Equal(s.T(), 220, st.Width)
+	require.Equal(s.T(), 160, st.Height)
+
+	swatch := Point{165, 110}
+	tests := []struct {
+		name string
+		p    proto.ActionParams
+	}{
+		{name: "refused press clicks the swatch", p: proto.ActionParams{Action: proto.ActionClick, Index: 3}},
+		{name: "screenshot pixels reach the swatch", p: proto.ActionParams{Action: proto.ActionClick, X: ptr(130), Y: ptr(120)}},
+	}
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			if tc.p.Index > 0 {
+				s.p.On("Press", uintptr(3)).Return(&proto.Error{Code: proto.CodeUnsupported, Message: "the element refused the press"}).Once()
+			}
+			s.foreground(true)
+			s.p.On("Click", swatch, ButtonLeft, 1).Return(nil).Once()
+			var res proto.ActionResult
+			s.ok(s.act(tc.p), &res)
+			require.Equal(s.T(), "click done in TextEdit", res.Message)
+		})
+	}
+}
+
 func (s *ServiceSuite) TestForegroundGivesUpWhileTheUserIsActive() {
 	s.running()
 	s.p.On("UserIdle").Return(time.Duration(0))
@@ -661,10 +705,28 @@ func (s *ServiceSuite) TestRestoreFailureDoesNotFailTheAction() {
 	s.p.On("UserIdle").Return(time.Hour)
 	s.p.On("Activate", textEdit).Return(nil).Once()
 	s.p.On("Frontmost", textEdit).Return(true).Once()
+	s.p.On("Windows", textEdit).Return([]uint32{5}).Twice()
 	s.p.On("Activate", finder).Return(errors.New("gone")).Once()
 	s.p.On("Key", Combo{Key: "a"}).Return(nil)
 	var res proto.ActionResult
 	s.ok(s.act(proto.ActionParams{Action: proto.ActionKey, Keys: "a", Foreground: true}), &res)
+}
+
+func (s *ServiceSuite) TestForegroundLeavesAnOpenedWindowInFront() {
+	// The click opens a popover, a window of its own, which would close
+	// with the focus given back to Finder.
+	s.read()
+	s.p.On("UserIdle").Return(time.Hour).Once()
+	s.p.On("Activate", textEdit).Return(nil).Once()
+	s.p.On("Frontmost", textEdit).Return(true).Once()
+	s.p.On("Windows", textEdit).Return([]uint32{5}).Once()
+	s.p.On("Click", Point{110, 60}, ButtonLeft, 1).Return(nil).Once()
+	s.p.On("Windows", textEdit).Return([]uint32{8, 5}).Once()
+	var res proto.ActionResult
+	s.ok(s.act(proto.ActionParams{Action: proto.ActionClick, X: ptr(20), Y: ptr(20)}), &res)
+	require.Equal(s.T(), "click done in TextEdit; it opened a window, such as a popover or menu, so it was left in front for that to stay open", res.Message)
+	require.Equal(s.T(), []time.Duration{settle}, s.sleeps)
+	s.p.AssertNotCalled(s.T(), "Activate", finder)
 }
 
 func (s *ServiceSuite) TestActionPlatformErrors() {

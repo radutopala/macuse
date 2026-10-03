@@ -27,6 +27,7 @@ const (
 	kAXValueCFRangeType = 4
 
 	kAXErrorSuccess           = 0
+	kAXErrorFailure           = -25200
 	kAXErrorIllegalArgument   = -25201
 	kAXErrorInvalidElement    = -25202
 	kAXErrorAPIDisabled       = -25211
@@ -89,6 +90,7 @@ type lib struct {
 	CFStringGetLength                 func(uintptr) int64
 	CFStringGetMaximumSizeForEncoding func(n int64, enc uint32) int64
 	CFStringGetCString                func(s uintptr, buf *byte, size int64, enc uint32) bool
+	CFArrayCreate                     func(alloc uintptr, values *uintptr, n int64, callbacks uintptr) uintptr
 	CFArrayGetCount                   func(uintptr) int64
 	CFArrayGetValueAtIndex            func(uintptr, int64) uintptr
 	CFBooleanGetValue                 func(uintptr) bool
@@ -133,15 +135,18 @@ type lib struct {
 	CGPreflightScreenCaptureAccess         func() bool
 	CGRequestScreenCaptureAccess           func() bool
 	// CGWindowListCreateImage is nil when this macOS no longer exports it.
-	CGWindowListCreateImage     func(r cgRect, opts, windowID, imageOpts uint32) uintptr
-	CGImageGetWidth             func(uintptr) uint64
-	CGImageGetHeight            func(uintptr) uint64
-	CGImageRelease              func(uintptr)
-	CGColorSpaceCreateDeviceRGB func() uintptr
-	CGColorSpaceRelease         func(uintptr)
-	CGBitmapContextCreate       func(data *byte, w, h, bitsPerComponent, bytesPerRow uint64, cs uintptr, info uint32) uintptr
-	CGContextDrawImage          func(ctx uintptr, r cgRect, img uintptr)
-	CGContextRelease            func(uintptr)
+	CGWindowListCreateImage func(r cgRect, opts, windowID, imageOpts uint32) uintptr
+	// CGWindowListCreateImageFromArray is nil like CGWindowListCreateImage.
+	CGWindowListCreateImageFromArray func(r cgRect, windows uintptr, imageOpts uint32) uintptr
+	CGWindowListCopyWindowInfo       func(opts, relativeTo uint32) uintptr
+	CGImageGetWidth                  func(uintptr) uint64
+	CGImageGetHeight                 func(uintptr) uint64
+	CGImageRelease                   func(uintptr)
+	CGColorSpaceCreateDeviceRGB      func() uintptr
+	CGColorSpaceRelease              func(uintptr)
+	CGBitmapContextCreate            func(data *byte, w, h, bitsPerComponent, bytesPerRow uint64, cs uintptr, info uint32) uintptr
+	CGContextDrawImage               func(ctx uintptr, r cgRect, img uintptr)
+	CGContextRelease                 func(uintptr)
 
 	// Security
 	SecStaticCodeCreateWithPath   func(url uintptr, flags uint32, out *uintptr) int32
@@ -154,6 +159,8 @@ type lib struct {
 	kCFRunLoopDefaultMode           uintptr
 	kAXTrustedCheckOptionPrompt     uintptr
 	kSecCodeInfoTeamIdentifier      uintptr
+	kCGWindowNumber                 uintptr
+	kCGWindowOwnerPID               uintptr
 }
 
 // loadLib opens the frameworks and binds every function. RegisterLibFunc
@@ -194,6 +201,7 @@ func loadLib() (l *lib, err error) {
 	bind(&l.CFStringGetLength, cf, "CFStringGetLength")
 	bind(&l.CFStringGetMaximumSizeForEncoding, cf, "CFStringGetMaximumSizeForEncoding")
 	bind(&l.CFStringGetCString, cf, "CFStringGetCString")
+	bind(&l.CFArrayCreate, cf, "CFArrayCreate")
 	bind(&l.CFArrayGetCount, cf, "CFArrayGetCount")
 	bind(&l.CFArrayGetValueAtIndex, cf, "CFArrayGetValueAtIndex")
 	bind(&l.CFBooleanGetValue, cf, "CFBooleanGetValue")
@@ -239,6 +247,10 @@ func loadLib() (l *lib, err error) {
 	if sym, err := purego.Dlsym(cg, "CGWindowListCreateImage"); err == nil {
 		purego.RegisterFunc(&l.CGWindowListCreateImage, sym)
 	}
+	if sym, err := purego.Dlsym(cg, "CGWindowListCreateImageFromArray"); err == nil {
+		purego.RegisterFunc(&l.CGWindowListCreateImageFromArray, sym)
+	}
+	bind(&l.CGWindowListCopyWindowInfo, cg, "CGWindowListCopyWindowInfo")
 	bind(&l.CGImageGetWidth, cg, "CGImageGetWidth")
 	bind(&l.CGImageGetHeight, cg, "CGImageGetHeight")
 	bind(&l.CGImageRelease, cg, "CGImageRelease")
@@ -257,6 +269,8 @@ func loadLib() (l *lib, err error) {
 	l.kCFRunLoopDefaultMode = loadVar(cf, "kCFRunLoopDefaultMode")
 	l.kAXTrustedCheckOptionPrompt = loadVar(as, "kAXTrustedCheckOptionPrompt")
 	l.kSecCodeInfoTeamIdentifier = loadVar(sec, "kSecCodeInfoTeamIdentifier")
+	l.kCGWindowNumber = loadVar(cg, "kCGWindowNumber")
+	l.kCGWindowOwnerPID = loadVar(cg, "kCGWindowOwnerPID")
 	return l, nil
 }
 

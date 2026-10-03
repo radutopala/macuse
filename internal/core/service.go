@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -15,7 +16,11 @@ import (
 type snapshot struct {
 	elements []Element
 	rendered string
-	frame    Rect
+	// clips is where each element can show, by index - 1.
+	clips []Rect
+	// frame is the area the screenshot covers: the window and any popover
+	// hanging past its edge.
+	frame Rect
 	// scale is screenshot pixels per screen point; 0 when no screenshot was
 	// taken.
 	scale float64
@@ -176,24 +181,44 @@ func (s *Service) waitIdle() error {
 
 // foreground runs input that only reaches app while it's frontmost: once the
 // user pauses, it brings app forward, and afterwards, when restore is set,
-// gives the focus back to front, the app the user was in.
-func (s *Service) foreground(app proto.App, front *proto.App, restore bool, run func() error) error {
+// gives the focus back to front, the app the user was in. A popover or menu
+// the input opened would close with the focus gone, so when the app opened a
+// window it's left in front instead, and stayed reports that.
+func (s *Service) foreground(app proto.App, front *proto.App, restore bool, run func() error) (stayed bool, err error) {
 	if err := s.waitIdle(); err != nil {
-		return err
+		return false, err
 	}
 	if err := s.platform.Activate(app); err != nil {
-		return err
+		return false, err
 	}
 	if err := s.waitFront(app); err != nil {
-		return err
+		return false, err
 	}
-	err := run()
-	if restore && front != nil && front.PID != app.PID {
+	restore = restore && front != nil && front.PID != app.PID
+	var before []uint32
+	if restore {
+		before = s.platform.Windows(app)
+	}
+	err = run()
+	if restore {
 		s.sleep(settle)
+		if opened(before, s.platform.Windows(app)) {
+			return true, err
+		}
 		// Best effort: the action itself went through.
 		_ = s.platform.Activate(*front)
 	}
-	return err
+	return false, err
+}
+
+// opened reports whether after holds a window that before doesn't.
+func opened(before, after []uint32) bool {
+	for _, id := range after {
+		if !slices.Contains(before, id) {
+			return true
+		}
+	}
+	return false
 }
 
 // waitFront waits for an activated app to become frontmost: input posted
@@ -255,7 +280,8 @@ func (s *Service) getState(p proto.GetStateParams) (proto.State, error) {
 	if err != nil {
 		return proto.State{}, err
 	}
-	snap := &snapshot{elements: Flatten(root), frame: win.Frame}
+	snap := &snapshot{elements: Flatten(root)}
+	snap.clips, snap.frame = Clips(snap.elements, win.Frame)
 	snap.rendered = Render(snap.elements)
 	state := proto.State{
 		App:       app,
@@ -270,11 +296,14 @@ func (s *Service) getState(p proto.GetStateParams) (proto.State, error) {
 		}
 	}
 	if capture != proto.CaptureText {
+		// The shot covers popovers too, so their elements can be seen and
+		// clicked.
+		win.Frame = snap.frame
 		shot := func() error { return s.screenshot(&state, snap, win, p.MaxImageEdge) }
 		if win.ID == 0 {
 			// Without the window's id only the screen can be captured, so
 			// the window must be on top.
-			err = s.foreground(app, front, true, shot)
+			_, err = s.foreground(app, front, true, shot)
 		} else {
 			err = shot()
 		}
@@ -343,9 +372,9 @@ func (s *Service) imagePoint(bundleID string, x, y float64) (Point, error) {
 }
 
 // target resolves where an action lands: for an index, the center of the
-// element's part inside the window (a text area's frame spans its whole
-// document, so its own center can lie off-screen); otherwise the given
-// screenshot coordinates.
+// element's part inside its popover or else the window (a text area's frame
+// spans its whole document, so its own center can lie off-screen);
+// otherwise the given screenshot coordinates.
 func (s *Service) target(p proto.ActionParams) (Point, error) {
 	if p.Index > 0 {
 		el, err := s.element(p.BundleID, p.Index)
@@ -356,7 +385,7 @@ func (s *Service) target(p proto.ActionParams) (Point, error) {
 		if frame.W == 0 || frame.H == 0 {
 			return frame.Center(), nil
 		}
-		visible, ok := frame.Intersect(s.snapshots[p.BundleID].frame)
+		visible, ok := frame.Intersect(s.snapshots[p.BundleID].clips[p.Index-1])
 		if !ok {
 			return Point{}, &proto.Error{Code: proto.CodeElementNotFound, Message: fmt.Sprintf("element [%d] is outside the window; scroll it into view and read the window state again", p.Index)}
 		}
@@ -393,14 +422,19 @@ func (s *Service) action(p proto.ActionParams) (proto.ActionResult, error) {
 	if err != nil {
 		return proto.ActionResult{}, err
 	}
-	if err := s.perform(app, front, st); err != nil {
+	stayed, err := s.perform(app, front, st)
+	if err != nil {
 		if errors.Is(err, ErrNoReply) {
 			// Retrying could press twice; the agent should look first.
 			return proto.ActionResult{Message: s.unconfirmed(app, front, p.Action)}, nil
 		}
 		return proto.ActionResult{}, err
 	}
-	return proto.ActionResult{Message: fmt.Sprintf("%s done in %s", p.Action, app.Name)}, nil
+	msg := fmt.Sprintf("%s done in %s", p.Action, app.Name)
+	if stayed {
+		msg += "; it opened a window, such as a popover or menu, so it was left in front for that to stay open"
+	}
+	return proto.ActionResult{Message: msg}, nil
 }
 
 // unconfirmed reports an action the app took but didn't answer, most likely
@@ -418,22 +452,24 @@ func (s *Service) unconfirmed(app proto.App, front *proto.App, action string) st
 	return msg + "it was brought to the front to show any dialog it holds, so read its state"
 }
 
-func (s *Service) perform(app proto.App, front *proto.App, st step) error {
+// perform runs the step; stayed reports the app left in front, as foreground
+// does.
+func (s *Service) perform(app proto.App, front *proto.App, st step) (stayed bool, err error) {
 	if st.background != nil {
 		err := st.background()
 		var perr *proto.Error
 		if err == nil || !errors.As(err, &perr) || perr.Code != proto.CodeUnsupported {
-			return err
+			return false, err
 		}
 		if st.input == nil {
 			if st.inputErr != nil {
-				return st.inputErr
+				return false, st.inputErr
 			}
-			return err
+			return false, err
 		}
 	}
 	if st.inputBackground {
-		return st.input()
+		return false, st.input()
 	}
 	return s.foreground(app, front, !st.keepFocus, st.input)
 }

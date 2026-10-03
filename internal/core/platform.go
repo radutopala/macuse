@@ -17,12 +17,14 @@ const (
 )
 
 // Window is an app's focused window. Ref is the platform handle, released
-// with Platform.Release; ID is the window server's id, 0 when unknown.
+// with Platform.Release; ID is the window server's id, 0 when unknown; PID
+// is its app's process.
 type Window struct {
 	Title string
 	Frame Rect
 	Ref   uintptr
 	ID    uint32
+	PID   int
 }
 
 // ErrNoReply means the app took a press but didn't answer in time, as
@@ -42,11 +44,15 @@ type Platform interface {
 	// posted to the front goes.
 	Frontmost(app proto.App) bool
 	FocusedWindow(app proto.App) (Window, error)
+	// Windows lists the ids of the app's windows on screen, popovers and
+	// menus included.
+	Windows(app proto.App) []uint32
 	// Tree walks the window's accessibility tree within lim. truncated is
 	// true when a limit cut the walk short.
 	Tree(win Window, lim Limits) (root *Node, truncated bool, err error)
-	// Capture returns the window's contents: just the window, even when
-	// covered, if its ID is known; else the screen within its frame.
+	// Capture returns what's within win.Frame: just the app's windows, even
+	// when covered, if the window's ID is known, so a popover it opened
+	// shows too; else the screen.
 	Capture(win Window) (image.Image, error)
 	Press(ref uintptr) error
 	SetValue(ref uintptr, value string) error
