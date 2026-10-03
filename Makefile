@@ -31,13 +31,13 @@ install: sign ## Install the signed app to INSTALL_DIR and link the CLI into BIN
 uninstall: ## Stop the service, then remove the app and the CLI link (keeps settings and approvals)
 	@# [m] keeps the pattern from matching this recipe's own shell.
 	@[ ! -x $(INSTALLED) ] || $(INSTALLED) service uninstall
-	@pkill -TERM -f '$(INSTALL_DIR)/macuse.app/Contents/MacOS/[m]ac-use$$' && echo "Quit the running macuse" || true
+	@pkill -TERM -f '$(INSTALL_DIR)/macuse.app/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
 	rm -rf $(INSTALL_DIR)/macuse.app
 	rm -f $(BIN_DIR)/macuse
 
 restart: install ## Install, then stop and start the server
 	@# A copy opened from Finder runs without arguments; quit it so the service takes over.
-	@pkill -TERM -f '$(INSTALL_DIR)/macuse.app/Contents/MacOS/[m]ac-use$$' && echo "Quit the running macuse" || true
+	@pkill -TERM -f '$(INSTALL_DIR)/macuse.app/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
 	$(INSTALLED) service install
 
 test: ## Run the tests
