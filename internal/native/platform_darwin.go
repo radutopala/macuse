@@ -738,13 +738,55 @@ func (p *Platform) key(c core.Combo, post func(ev uintptr)) error {
 		return &proto.Error{Code: proto.CodeInvalidParams, Message: "unknown key " + c.Key}
 	}
 	p.do(func() {
-		for _, down := range []bool{true, false} {
-			ev := p.l.CGEventCreateKeyboardEvent(0, code, down)
-			p.l.CGEventSetFlags(ev, flags(c.Mods))
+		for _, k := range keyEvents(code, c.Mods) {
+			ev := p.l.CGEventCreateKeyboardEvent(0, k.code, k.down)
+			p.l.CGEventSetFlags(ev, k.flags)
 			post(ev)
 		}
 	})
 	return nil
+}
+
+// modifierKeys are the virtual key codes of the left modifier keys, in the
+// order a combo presses them.
+var modifierKeys = []struct {
+	mod  core.Modifier
+	code uint16
+}{
+	{core.ModCmd, 55},
+	{core.ModShift, 56},
+	{core.ModAlt, 58},
+	{core.ModCtrl, 59},
+}
+
+type keyEvent struct {
+	code  uint16
+	down  bool
+	flags uint64
+}
+
+// keyEvents presses a combo as a keyboard does: the modifiers down, the key
+// down and up, then the modifiers up. A key posted with modifier flags but
+// no modifier release leaves them held in the session state, which every
+// later event created without a source inherits: text typed afterwards
+// arrives as shortcuts.
+func keyEvents(code uint16, mods core.Modifier) []keyEvent {
+	var held core.Modifier
+	var events []keyEvent
+	for _, m := range modifierKeys {
+		if mods&m.mod != 0 {
+			held |= m.mod
+			events = append(events, keyEvent{m.code, true, flags(held)})
+		}
+	}
+	events = append(events, keyEvent{code, true, flags(held)}, keyEvent{code, false, flags(held)})
+	for i := len(modifierKeys) - 1; i >= 0; i-- {
+		if m := modifierKeys[i]; mods&m.mod != 0 {
+			held &^= m.mod
+			events = append(events, keyEvent{m.code, false, flags(held)})
+		}
+	}
+	return events
 }
 
 // typeChunk is how many characters one synthetic key event carries; apps
@@ -809,19 +851,49 @@ func (p *Platform) focusedRoleValue(app proto.App) (role, value string) {
 	return role, value
 }
 
+// kVKReturn is the Return key's virtual key code.
+const kVKReturn = 36
+
 func (p *Platform) typeText(text string, chunk int, post func(ev uintptr)) {
-	runes := []rune(text)
 	p.do(func() {
-		for start := 0; start < len(runes); start += chunk {
-			units := utf16.Encode(runes[start:min(start+chunk, len(runes))])
+		for _, c := range typeChunks(text, chunk) {
 			for _, down := range []bool{true, false} {
-				ev := p.l.CGEventCreateKeyboardEvent(0, 0, down)
-				p.l.CGEventKeyboardSetUnicodeString(ev, uint64(len(units)), &units[0])
+				var ev uintptr
+				if c == nil {
+					ev = p.l.CGEventCreateKeyboardEvent(0, kVKReturn, down)
+				} else {
+					ev = p.l.CGEventCreateKeyboardEvent(0, 0, down)
+				}
+				// No modifiers, whatever the session holds: text is never
+				// a shortcut.
+				p.l.CGEventSetFlags(ev, 0)
+				if c != nil {
+					p.l.CGEventKeyboardSetUnicodeString(ev, uint64(len(c)), &c[0])
+				}
 				post(ev)
 			}
 			time.Sleep(5 * time.Millisecond)
 		}
 	})
+}
+
+// typeChunks splits text into the UTF-16 strings one key event carries, at
+// most chunk characters each. A line break is a nil chunk, pressed as
+// Return: editors drop a newline that comes as a character.
+func typeChunks(text string, chunk int) [][]uint16 {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	var chunks [][]uint16
+	for i, line := range strings.Split(text, "\n") {
+		if i > 0 {
+			chunks = append(chunks, nil)
+		}
+		runes := []rune(line)
+		for start := 0; start < len(runes); start += chunk {
+			chunks = append(chunks, utf16.Encode(runes[start:min(start+chunk, len(runes))]))
+		}
+	}
+	return chunks
 }
 
 // Release drops the retained element handles.
