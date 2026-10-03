@@ -494,12 +494,65 @@ func (s *ServiceSuite) TestActions() {
 }
 
 func (s *ServiceSuite) TestUnconfirmedPressIsNotRetried() {
-	s.read()
-	s.p.On("Press", uintptr(3)).Return(fmt.Errorf("press: %w", ErrNoReply)).Once()
-	var res proto.ActionResult
-	s.ok(s.act(proto.ActionParams{Action: proto.ActionClick, Index: 3}), &res)
-	require.Equal(s.T(), "click sent to TextEdit, which didn't confirm it in time; it may be showing a dialog, so read its state", res.Message)
-	s.p.AssertNotCalled(s.T(), "Click", mock.Anything, mock.Anything, mock.Anything)
+	const sent = "click sent to TextEdit, which didn't confirm it in time; "
+	frontTextEdit := textEdit
+	frontTextEdit.Active = true
+	tests := []struct {
+		name  string
+		app   proto.App
+		setup func()
+		want  string
+	}{
+		{
+			name: "frontmost app",
+			app:  frontTextEdit,
+			want: sent + "it may be showing a dialog, so read its state",
+		},
+		{
+			name: "background app brought forward",
+			app:  textEdit,
+			setup: func() {
+				s.p.On("UserIdle").Return(time.Hour).Once()
+				s.p.On("Activate", textEdit).Return(nil).Once()
+			},
+			want: sent + "it was brought to the front to show any dialog it holds, so read its state",
+		},
+		{
+			name:  "background app while the user is active",
+			app:   textEdit,
+			setup: func() { s.p.On("UserIdle").Return(time.Duration(0)) },
+			want:  sent + "it may be holding a dialog it shows only once it's in front, so read its state",
+		},
+		{
+			name: "background app that won't come forward",
+			app:  textEdit,
+			setup: func() {
+				s.p.On("UserIdle").Return(time.Hour).Once()
+				s.p.On("Activate", textEdit).Return(errors.New("gone")).Once()
+			},
+			want: sent + "it may be holding a dialog it shows only once it's in front, so read its state",
+		},
+	}
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+			s.p.On("ListApps").Return([]proto.App{{BundleID: finder.BundleID, Name: "Finder", PID: 7, Active: !tc.app.Active}, tc.app}, nil)
+			s.p.On("FocusedWindow", tc.app).Return(testWin, nil).Once()
+			s.p.On("Release", []uintptr{9}).Once()
+			s.p.On("Tree", testWin, DefaultLimits).Return(sampleTree(), false, nil).Once()
+			var st proto.State
+			s.ok(s.call(proto.MethodGetState, proto.GetStateParams{BundleID: textEdit.BundleID, Capture: proto.CaptureText}), &st)
+			s.p.On("Press", uintptr(3)).Return(fmt.Errorf("press: %w", ErrNoReply)).Once()
+			if tc.setup != nil {
+				tc.setup()
+			}
+			var res proto.ActionResult
+			s.ok(s.act(proto.ActionParams{Action: proto.ActionClick, Index: 3}), &res)
+			require.Equal(s.T(), tc.want, res.Message)
+			s.p.AssertNotCalled(s.T(), "Click", mock.Anything, mock.Anything, mock.Anything)
+			s.p.AssertExpectations(s.T())
+		})
+	}
 }
 
 func (s *ServiceSuite) TestForegroundWithoutAnotherFrontApp() {

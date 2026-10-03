@@ -396,12 +396,26 @@ func (s *Service) action(p proto.ActionParams) (proto.ActionResult, error) {
 	if err := s.perform(app, front, st); err != nil {
 		if errors.Is(err, ErrNoReply) {
 			// Retrying could press twice; the agent should look first.
-			return proto.ActionResult{Message: fmt.Sprintf(
-				"%s sent to %s, which didn't confirm it in time; it may be showing a dialog, so read its state", p.Action, app.Name)}, nil
+			return proto.ActionResult{Message: s.unconfirmed(app, front, p.Action)}, nil
 		}
 		return proto.ActionResult{}, err
 	}
 	return proto.ActionResult{Message: fmt.Sprintf("%s done in %s", p.Action, app.Name)}, nil
+}
+
+// unconfirmed reports an action the app took but didn't answer, most likely
+// because it opened a modal dialog. An app in the background holds such a
+// dialog back until it's frontmost, so once the user pauses it's brought
+// forward, and left there, for the dialog to show.
+func (s *Service) unconfirmed(app proto.App, front *proto.App, action string) string {
+	msg := fmt.Sprintf("%s sent to %s, which didn't confirm it in time; ", action, app.Name)
+	if front != nil && front.PID == app.PID {
+		return msg + "it may be showing a dialog, so read its state"
+	}
+	if s.waitIdle() != nil || s.platform.Activate(app) != nil {
+		return msg + "it may be holding a dialog it shows only once it's in front, so read its state"
+	}
+	return msg + "it was brought to the front to show any dialog it holds, so read its state"
 }
 
 func (s *Service) perform(app proto.App, front *proto.App, st step) error {
