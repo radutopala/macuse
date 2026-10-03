@@ -183,16 +183,40 @@ func (p *Platform) ListApps() (apps []proto.App, err error) {
 			if bundleID == "" {
 				continue
 			}
+			pid := int(objc.Send[int32](app, p.s("processIdentifier")))
+			if pid <= 0 {
+				pid = p.pidOf(app)
+			}
 			apps = append(apps, proto.App{
 				BundleID: bundleID,
 				Name:     p.l.goString(uintptr(app.Send(p.s("localizedName")))),
-				PID:      int(objc.Send[int32](app, p.s("processIdentifier"))),
+				PID:      pid,
 				Active:   objc.Send[bool](app, p.s("isActive")),
 				TeamID:   p.teamID(app.Send(p.s("bundleURL"))),
 			})
 		}
 	})
 	return apps, nil
+}
+
+// pidOf finds the process running app's executable. An app whose launcher
+// execs another binary, such as FreeCAD, keeps its pid, but AppKit then
+// reports it as -1.
+func (p *Platform) pidOf(app objc.ID) int {
+	url := app.Send(p.s("executableURL"))
+	if url == 0 {
+		return -1
+	}
+	path := p.l.goString(uintptr(url.Send(p.s("path"))))
+	pids := make([]int32, 4096)
+	n := p.l.proc_listallpids(&pids[0], int32(len(pids)*4))
+	buf := make([]byte, 4096) // PROC_PIDPATHINFO_MAXSIZE
+	for _, pid := range pids[:max(n, 0)] {
+		if l := p.l.proc_pidpath(pid, &buf[0], uint32(len(buf))); l > 0 && string(buf[:l]) == path {
+			return int(pid)
+		}
+	}
+	return -1
 }
 
 // teamID reads the code-signing team of the bundle at url (an NSURL, toll-free

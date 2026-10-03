@@ -74,6 +74,7 @@ const (
 	frameworkSecurity = "/System/Library/Frameworks/Security.framework/Security"
 	frameworkAppKit   = "/System/Library/Frameworks/AppKit.framework/AppKit"
 	frameworkWebKit   = "/System/Library/Frameworks/WebKit.framework/WebKit"
+	libSystem         = "/usr/lib/libSystem.B.dylib"
 )
 
 // lib holds the C entry points the platform calls.
@@ -152,6 +153,10 @@ type lib struct {
 	SecStaticCodeCreateWithPath   func(url uintptr, flags uint32, out *uintptr) int32
 	SecCodeCopySigningInformation func(code uintptr, flags uint32, out *uintptr) int32
 
+	// libproc
+	proc_listallpids func(buf *int32, size int32) int32
+	proc_pidpath     func(pid int32, buf *byte, size uint32) int32
+
 	// Constants exported as variables.
 	kCFBooleanTrue                  uintptr
 	kCFTypeDictionaryKeyCallBacks   uintptr // address of the struct
@@ -182,6 +187,7 @@ func loadLib() (l *lib, err error) {
 	as := open(frameworkAS)
 	cg := open(frameworkCG)
 	sec := open(frameworkSecurity)
+	sys := open(libSystem)
 	// AppKit registers NSWorkspace and the menu bar classes with the
 	// Objective-C runtime, WebKit the popover's web view.
 	open(frameworkAppKit)
@@ -262,6 +268,9 @@ func loadLib() (l *lib, err error) {
 
 	bind(&l.SecStaticCodeCreateWithPath, sec, "SecStaticCodeCreateWithPath")
 	bind(&l.SecCodeCopySigningInformation, sec, "SecCodeCopySigningInformation")
+
+	bind(&l.proc_listallpids, sys, "proc_listallpids")
+	bind(&l.proc_pidpath, sys, "proc_pidpath")
 
 	l.kCFBooleanTrue = loadVar(cf, "kCFBooleanTrue")
 	l.kCFTypeDictionaryKeyCallBacks = symbol(cf, "kCFTypeDictionaryKeyCallBacks")
