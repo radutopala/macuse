@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -490,6 +491,15 @@ func (s *ServiceSuite) TestActions() {
 			}
 		})
 	}
+}
+
+func (s *ServiceSuite) TestUnconfirmedPressIsNotRetried() {
+	s.read()
+	s.p.On("Press", uintptr(3)).Return(fmt.Errorf("press: %w", ErrNoReply)).Once()
+	var res proto.ActionResult
+	s.ok(s.act(proto.ActionParams{Action: proto.ActionClick, Index: 3}), &res)
+	require.Equal(s.T(), "click sent to TextEdit, which didn't confirm it in time; it may be showing a dialog, so read its state", res.Message)
+	s.p.AssertNotCalled(s.T(), "Click", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func (s *ServiceSuite) TestForegroundWithoutAnotherFrontApp() {

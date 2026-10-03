@@ -460,10 +460,15 @@ func (p *Platform) toRGBA(ref uintptr) *image.RGBA {
 	return rgba
 }
 
-// Press performs the element's AXPress action.
+// Press performs the element's AXPress action. An app that opens a modal
+// dialog on the press can leave it unanswered; that is ErrNoReply.
 func (p *Platform) Press(ref uintptr) (err error) {
 	p.do(func() {
-		if code := p.l.AXUIElementPerformAction(ref, p.attr("AXPress")); code != kAXErrorSuccess {
+		switch code := p.l.AXUIElementPerformAction(ref, p.attr("AXPress")); code {
+		case kAXErrorSuccess:
+		case kAXErrorCannotComplete:
+			err = fmt.Errorf("press: %w", core.ErrNoReply)
+		default:
 			err = axError(code, "press")
 		}
 	})

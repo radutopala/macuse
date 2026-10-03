@@ -394,6 +394,11 @@ func (s *Service) action(p proto.ActionParams) (proto.ActionResult, error) {
 		return proto.ActionResult{}, err
 	}
 	if err := s.perform(app, front, st); err != nil {
+		if errors.Is(err, ErrNoReply) {
+			// Retrying could press twice; the agent should look first.
+			return proto.ActionResult{Message: fmt.Sprintf(
+				"%s sent to %s, which didn't confirm it in time; it may be showing a dialog, so read its state", p.Action, app.Name)}, nil
+		}
 		return proto.ActionResult{}, err
 	}
 	return proto.ActionResult{Message: fmt.Sprintf("%s done in %s", p.Action, app.Name)}, nil

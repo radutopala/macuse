@@ -32,6 +32,7 @@ const (
 	kAXErrorAPIDisabled       = -25211
 	kAXErrorNoValue           = -25212
 	kAXErrorAttrUnsupported   = -25205
+	kAXErrorCannotComplete    = -25204
 	kAXErrorActionUnsupported = -25206
 
 	kCGEventLeftMouseDown    = 1

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"image"
 	"time"
 
@@ -23,6 +24,10 @@ type Window struct {
 	Ref   uintptr
 	ID    uint32
 }
+
+// ErrNoReply means the app took a press but didn't answer in time, as
+// when the press opens a modal dialog. The press most likely happened.
+var ErrNoReply = errors.New("the app didn't reply in time")
 
 // Platform is the OS layer the Service drives. Errors may be *proto.Error to
 // carry a specific code; anything else is reported as internal.
