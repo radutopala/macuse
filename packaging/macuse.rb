@@ -11,9 +11,9 @@ cask "macuse" do
   auto_updates true
   depends_on macos: ">= :ventura"
 
-  app "macuse.app"
+  app "MacUse.app"
   # The CLI is the app's own binary, which holds the privacy grants.
-  binary "#{appdir}/macuse.app/Contents/MacOS/macuse"
+  binary "#{appdir}/MacUse.app/Contents/MacOS/macuse"
 
   uninstall launchctl: "io.github.radutopala.macuse",
             quit:      "io.github.radutopala.macuse"

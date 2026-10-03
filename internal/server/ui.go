@@ -197,7 +197,7 @@ func (s *Server) handleInstallCLI(w http.ResponseWriter, _ *http.Request) {
 }
 
 var (
-	errNotTheApp = fail(proto.CodeUnsupported, "only macuse.app can do this")
+	errNotTheApp = fail(proto.CodeUnsupported, "only MacUse.app can do this")
 	errNoUpdater = fail(proto.CodeUnsupported, "this build of macuse doesn't update itself")
 )
 

@@ -199,6 +199,28 @@ func (s *UpdateSuite) TestInstall() {
 		`-R=identifier "io.github.radutopala.macuse" and anchor apple generic and certificate leaf[subject.OU] = "TEAM123"`)
 }
 
+func (s *UpdateSuite) TestTakeName() {
+	var renames [][2]string
+	rename := func(from, to string) error { renames = append(renames, [2]string{from, to}); return nil }
+	old := filepath.Join(s.dir, "Old.app")
+	s.Require().NoError(os.Mkdir(old, 0o755))
+
+	// No MacUse.app beside it: another name the user gave it.
+	takeName(old, rename)
+	require.Empty(s.T(), renames)
+
+	// The link stands for a volume that ignores case, where MacUse.app is
+	// the same path.
+	s.Require().NoError(os.Symlink(old, filepath.Join(s.dir, appName)))
+	takeName(old, rename)
+	require.Equal(s.T(), [][2]string{{old, filepath.Join(s.dir, appName)}}, renames)
+
+	// Already the release's name.
+	renames = nil
+	takeName(filepath.Join(s.dir, appName), rename)
+	require.Empty(s.T(), renames)
+}
+
 func (s *UpdateSuite) TestInstallFailures() {
 	tests := []struct {
 		name  string
@@ -233,7 +255,7 @@ func (s *UpdateSuite) TestInstallFailures() {
 			want: "the release lists 00",
 		},
 		{name: "unpack fails", f: &fakeRun{team: "T"}, want: "unpacking the update: exit status 1: ditto: bad zip"},
-		{name: "no app inside", f: &fakeRun{team: "T", dittoOK: true, noApp: true}, want: "the update has no macuse.app"},
+		{name: "no app inside", f: &fakeRun{team: "T", dittoOK: true, noApp: true}, want: "the update has no MacUse.app"},
 		{
 			name: "other team",
 			f: &fakeRun{team: "T", dittoOK: true, verify: func(string) ([]byte, error) {

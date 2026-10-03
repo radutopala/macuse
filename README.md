@@ -1,3 +1,5 @@
+<p align="center"><img src="packaging/icon/icon.png" width="128" alt="MacUse icon"></p>
+
 # macuse
 
 macuse lets AI agents use the apps on your Mac: read a window's accessibility
@@ -30,10 +32,10 @@ With Homebrew:
 brew install --cask radutopala/tap/macuse
 ```
 
-The cask installs `macuse.app` and links its binary as the `macuse` CLI.
+The cask installs `MacUse.app` and links its binary as the `macuse` CLI.
 Or download `macuse_<version>_macos.dmg` from the
 [releases](https://github.com/radutopala/macuse/releases), open it, and
-drag `macuse.app` to `/Applications`. The app is signed and notarized, and
+drag `MacUse.app` to `/Applications`. The app is signed and notarized, and
 runs on Apple silicon and Intel Macs.
 
 Then:
@@ -189,7 +191,7 @@ Errors are `{"error": {"code", "message"}}`, with codes such as `denied`,
 
 ```sh
 make build           # bin/macuse for this machine
-make app             # universal dist/macuse.app (unsigned)
+make app             # universal dist/MacUse.app (unsigned)
 make install         # signed app in /Applications, macuse linked into $GOPATH/bin
 make restart         # install, then (re)start it as a login service
 make uninstall       # stop it and remove the app and the link

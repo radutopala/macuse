@@ -23,12 +23,12 @@ import (
 	"github.com/radutopala/macuse/internal/server"
 )
 
-// bundled makes the app run from a macuse.app release, with a feed that
+// bundled makes the app run from a MacUse.app release, with a feed that
 // offers the next version and codesign and ditto that accept it.
 func (s *AppSuite) bundled() (bundle string, starts *[][]string) {
 	dir, err := filepath.EvalSymlinks(s.T().TempDir())
 	s.Require().NoError(err)
-	bundle = filepath.Join(dir, "macuse.app")
+	bundle = filepath.Join(dir, "MacUse.app")
 	exe := filepath.Join(bundle, "Contents", "MacOS", "macuse")
 	s.Require().NoError(os.MkdirAll(filepath.Dir(exe), 0o755))
 	s.Require().NoError(os.WriteFile(exe, []byte("v1"), 0o755))
@@ -60,7 +60,7 @@ func (s *AppSuite) bundled() (bundle string, starts *[][]string) {
 		case name == "codesign" && args[0] == "-dv":
 			return []byte("TeamIdentifier=TEAM\n"), nil
 		case name == "ditto":
-			next := filepath.Join(args[len(args)-1], "macuse.app", "Contents", "MacOS")
+			next := filepath.Join(args[len(args)-1], "MacUse.app", "Contents", "MacOS")
 			if err := os.MkdirAll(next, 0o755); err != nil {
 				return nil, err
 			}

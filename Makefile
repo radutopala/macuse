@@ -1,4 +1,4 @@
-.PHONY: help build install uninstall restart test coverage-check _coverage-check-run lint lint-darwin app sign notarize dmg dist clean
+.PHONY: help build install uninstall restart test coverage-check _coverage-check-run lint lint-darwin icon app sign notarize dmg dist clean
 .DEFAULT_GOAL := help
 
 help: ## Show available targets
@@ -11,19 +11,20 @@ LDFLAGS     := -s -w -X github.com/radutopala/macuse/internal/buildinfo.Version=
 GO_IMAGE    ?= golang:1.27
 LINT_IMAGE  ?= golangci/golangci-lint:v2.13.1
 DIST        := dist
-APP         := $(DIST)/macuse.app
+BUNDLE      := MacUse.app
+APP         := $(DIST)/$(BUNDLE)
 # Signing: a "Developer ID Application" identity in the keychain.
 SIGN_IDENTITY ?= Developer ID Application
 # Local install: the app, and a CLI link on the PATH like go install's.
 INSTALL_DIR ?= /Applications
 BIN_DIR     ?= $(shell go env GOPATH)/bin
-INSTALLED   := $(INSTALL_DIR)/macuse.app/Contents/MacOS/macuse
+INSTALLED   := $(INSTALL_DIR)/$(BUNDLE)/Contents/MacOS/macuse
 
 build: ## Build bin/macuse for this machine
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/macuse ./cmd/macuse
 
 install: sign ## Install the signed app to INSTALL_DIR and link the CLI into BIN_DIR
-	rm -rf $(INSTALL_DIR)/macuse.app
+	rm -rf $(INSTALL_DIR)/$(BUNDLE)
 	cp -R $(APP) $(INSTALL_DIR)/
 	mkdir -p $(BIN_DIR)
 	ln -sf $(INSTALLED) $(BIN_DIR)/macuse
@@ -31,13 +32,13 @@ install: sign ## Install the signed app to INSTALL_DIR and link the CLI into BIN
 uninstall: ## Stop the service, then remove the app and the CLI link (keeps settings and approvals)
 	@# [m] keeps the pattern from matching this recipe's own shell.
 	@[ ! -x $(INSTALLED) ] || $(INSTALLED) service uninstall
-	@pkill -TERM -f '$(INSTALL_DIR)/macuse.app/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
-	rm -rf $(INSTALL_DIR)/macuse.app
+	@pkill -i -TERM -f '$(INSTALL_DIR)/$(BUNDLE)/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
+	rm -rf $(INSTALL_DIR)/$(BUNDLE)
 	rm -f $(BIN_DIR)/macuse
 
 restart: install ## Install, then stop and start the server
 	@# A copy opened from Finder runs without arguments; quit it so the service takes over.
-	@pkill -TERM -f '$(INSTALL_DIR)/macuse.app/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
+	@pkill -i -TERM -f '$(INSTALL_DIR)/$(BUNDLE)/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
 	$(INSTALLED) service install
 
 test: ## Run the tests
@@ -68,7 +69,22 @@ lint: ## Run golangci-lint for Linux and macOS builds (with auto-fix)
 lint-darwin:
 	docker run --rm -e GOOS=darwin -e GOARCH=arm64 -v "$$(pwd)":/src -w /src $(LINT_IMAGE) golangci-lint run -v ./...
 
-app: ## Build the universal dist/macuse.app
+ICON := packaging/AppIcon.icns
+
+# The icon is committed; rerun this after changing packaging/icon/icon.swift.
+icon: ## Redraw packaging/AppIcon.icns and the README's icon.png from packaging/icon/icon.swift
+	rm -rf $(DIST)/AppIcon.iconset
+	mkdir -p $(DIST)/AppIcon.iconset
+	swift packaging/icon/icon.swift $(DIST)/icon-1024.png
+	for s in 16 32 128 256 512; do \
+		sips -z $$s $$s $(DIST)/icon-1024.png --out $(DIST)/AppIcon.iconset/icon_$${s}x$${s}.png >/dev/null && \
+		sips -z $$((s*2)) $$((s*2)) $(DIST)/icon-1024.png --out $(DIST)/AppIcon.iconset/icon_$${s}x$${s}@2x.png >/dev/null || exit 1; \
+	done
+	iconutil -c icns -o $(ICON) $(DIST)/AppIcon.iconset
+	sips -z 256 256 $(DIST)/icon-1024.png --out packaging/icon/icon.png >/dev/null
+	rm -rf $(DIST)/AppIcon.iconset $(DIST)/icon-1024.png
+
+app: ## Build the universal dist/MacUse.app
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/macuse-darwin-arm64 ./cmd/macuse
@@ -77,6 +93,8 @@ app: ## Build the universal dist/macuse.app
 	rm $(DIST)/macuse-darwin-arm64 $(DIST)/macuse-darwin-amd64
 	sed 's/@VERSION@/$(APP_VERSION)/g' packaging/Info.plist > $(APP)/Contents/Info.plist
 	plutil -lint $(APP)/Contents/Info.plist
+	mkdir -p $(APP)/Contents/Resources
+	cp $(ICON) $(APP)/Contents/Resources/AppIcon.icns
 
 sign: app ## Sign the app with the hardened runtime
 	codesign --force --options runtime --timestamp --sign "$(SIGN_IDENTITY)" $(APP)
@@ -95,9 +113,9 @@ DMG := $(DIST)/macuse_$(APP_VERSION)_macos.dmg
 dmg: notarize ## Signed, notarized and stapled disk image of the app
 	rm -rf $(DIST)/dmg $(DMG)
 	mkdir -p $(DIST)/dmg
-	ditto $(APP) $(DIST)/dmg/macuse.app
+	ditto $(APP) $(DIST)/dmg/$(BUNDLE)
 	ln -s /Applications $(DIST)/dmg/Applications
-	hdiutil create -volname macuse -srcfolder $(DIST)/dmg -fs HFS+ -format UDZO -ov $(DMG)
+	hdiutil create -volname MacUse -srcfolder $(DIST)/dmg -fs HFS+ -format UDZO -ov $(DMG)
 	rm -rf $(DIST)/dmg
 	codesign --force --timestamp --sign "$(SIGN_IDENTITY)" $(DMG)
 	xcrun notarytool submit $(DMG) --apple-id "$$APPLE_ID" --password "$$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$$APPLE_TEAM_ID" --wait
@@ -105,7 +123,7 @@ dmg: notarize ## Signed, notarized and stapled disk image of the app
 	spctl --assess --type open --context context:primary-signature --verbose $(DMG)
 
 dist: dmg ## Notarized app zip and disk image, Linux MCP client binaries, and checksums
-	cd $(DIST) && ditto -c -k --keepParent macuse.app macuse_$(APP_VERSION)_macos.zip
+	cd $(DIST) && ditto -c -k --keepParent $(BUNDLE) macuse_$(APP_VERSION)_macos.zip
 	for arch in amd64 arm64; do \
 		mkdir -p $(DIST)/linux-$$arch && cp LICENSE $(DIST)/linux-$$arch/ && \
 		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o $(DIST)/linux-$$arch/macuse ./cmd/macuse && \

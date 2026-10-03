@@ -1,4 +1,4 @@
-// Package update keeps macuse.app current from its GitHub releases: it
+// Package update keeps MacUse.app current from its GitHub releases: it
 // finds the latest release, then downloads, verifies and swaps in the new
 // app bundle.
 package update
@@ -28,7 +28,7 @@ const (
 	assetPrefix = "macuse_"
 	assetSuffix = "_macos.zip"
 	checksums   = "checksums.txt"
-	appName     = "macuse.app"
+	appName     = "MacUse.app"
 )
 
 // Release is a published version of the app.
@@ -132,7 +132,7 @@ func Newer(current, latest string) bool {
 
 // Installer replaces the running app with a release.
 type Installer struct {
-	// App is the running macuse.app.
+	// App is the running MacUse.app.
 	App  string
 	HTTP *http.Client
 	// Run runs a command (codesign, ditto), returning its combined output.
@@ -197,7 +197,21 @@ func (i Installer) Install(ctx context.Context, rel Release) error {
 		_ = os.Rename(old, i.App)
 		return fmt.Errorf("can't replace %s: %w", i.App, err)
 	}
+	takeName(i.App, os.Rename)
 	return nil
+}
+
+// takeName gives the app the release's name where that is the same path,
+// as macuse.app became MacUse.app on a volume that ignores case. Elsewhere
+// a rename would break the paths that point at the app, so it keeps its
+// name.
+func takeName(app string, rename func(from, to string) error) {
+	want := filepath.Join(filepath.Dir(app), appName)
+	a, errA := os.Stat(app)
+	b, errB := os.Stat(want)
+	if want != app && errA == nil && errB == nil && os.SameFile(a, b) {
+		_ = rename(app, want)
+	}
 }
 
 func (i Installer) download(ctx context.Context, rel Release, path string) error {

@@ -72,14 +72,15 @@ func (l Link) paths() []string {
 	return append(ps, l.Fallback)
 }
 
-// Installed reports whether one of the paths resolves to Target.
+// Installed reports whether one of the paths resolves to Target. It
+// compares files, not paths, which may differ in case.
 func (l Link) Installed() bool {
-	target, err := filepath.EvalSymlinks(l.Target)
+	target, err := os.Stat(l.Target)
 	if err != nil {
 		return false
 	}
 	for _, p := range l.paths() {
-		if real, err := filepath.EvalSymlinks(p); err == nil && real == target {
+		if fi, err := os.Stat(p); err == nil && os.SameFile(fi, target) {
 			return true
 		}
 	}
