@@ -42,6 +42,7 @@ button { font: inherit; border-radius: 6px; border: 1px solid var(--line); backg
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 button.link { border: none; background: none; color: var(--accent); padding: 2px 4px; }
 button.danger { color: var(--danger); }
+button.danger-fill { background: var(--danger); border-color: var(--danger); color: var(--accent-text); }
 .buttons button { flex: 1; }
 .empty { color: var(--muted); padding: 2px 4px; }
 .warn { background: var(--warn-bg); color: var(--warn-text); border-color: transparent; }
@@ -133,6 +134,25 @@ function say(msg) {
 
 function act(p) { p.then(refresh).catch(err => say(err.message)); }
 
+// Stop takes a second click, since a request answered just above it
+// shifts the list and can put a stray click on Stop. The second click
+// counts only after armDelay, so a double click can't confirm.
+const armFor = 4000, armDelay = 400;
+const arming = {}, armedAt = {};
+function stop(session) {
+  const now = Date.now();
+  if ((arming[session] || 0) > now) {
+    if (now - armedAt[session] < armDelay) return;
+    delete arming[session];
+    act(api("POST", "/ui/api/stop", { session }));
+    return;
+  }
+  arming[session] = now + armFor;
+  armedAt[session] = now;
+  render();
+  setTimeout(render, armFor + 50);
+}
+
 function render() {
   const st = state;
   document.getElementById("dot").className = "dot" + (st.paused ? " paused" : "");
@@ -183,7 +203,8 @@ function render() {
     });
   });
 
-  const activity = st.activity.map(a => ({ ...a, ago: ago(a.at) }));
+  const now = Date.now();
+  const activity = st.activity.map(a => ({ ...a, ago: ago(a.at), arming: (arming[a.session] || 0) > now }));
   fill("activity", activity, () => {
     if (!activity.length) return [el("div", { class: "empty" }, "No agent has used the Mac yet.")];
     return activity.map(a => {
@@ -191,9 +212,12 @@ function render() {
         el("div", { class: "grow" },
           el("div", { class: "title" }, a.client + " · " + a.app),
           el("div", { class: "sub" }, a.action + " · " + a.ago + (a.stopped ? " · stopped" : ""))));
-      if (!a.stopped) {
-        row.append(el("button", { class: "danger",
-          onclick: () => act(api("POST", "/ui/api/stop", { session: a.session })) }, "Stop"));
+      if (a.stopped) {
+        row.append(el("button", {
+          onclick: () => act(api("POST", "/ui/api/resume", { session: a.session })) }, "Resume"));
+      } else {
+        row.append(el("button", { class: a.arming ? "primary danger-fill" : "danger",
+          onclick: () => stop(a.session) }, a.arming ? "Confirm stop" : "Stop"));
       }
       return row;
     });

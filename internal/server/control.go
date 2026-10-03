@@ -12,6 +12,10 @@ import (
 // activeFor is how long after its last call a session counts as active.
 const activeFor = 5 * time.Second
 
+// RuleUser marks an audited stop or resume, which the user did from the
+// popup.
+const RuleUser = "user"
+
 // keepActivity is how long a session's last call stays in the popup.
 const keepActivity = 30 * time.Minute
 
@@ -63,19 +67,37 @@ func (s *Server) SetPaused(paused bool) {
 }
 
 // Stop refuses the session from now on and cancels its calls in flight.
-func (s *Server) Stop(session string) {
+func (s *Server) Stop(session string) { s.setStopped(session, true) }
+
+// Resume lets a stopped session control the Mac again.
+func (s *Server) Resume(session string) { s.setStopped(session, false) }
+
+// setStopped stops or resumes the session, auditing it, since only the
+// user does either.
+func (s *Server) setStopped(session string, stopped bool) {
 	s.mu.Lock()
-	s.stopped[session] = true
-	for _, c := range s.inflight {
-		if c.session == session {
-			c.cancel()
+	if stopped {
+		s.stopped[session] = true
+		for _, c := range s.inflight {
+			if c.session == session {
+				c.cancel()
+			}
 		}
+	} else {
+		delete(s.stopped, session)
 	}
-	if a, ok := s.activity[session]; ok {
-		a.Stopped = true
+	a, ok := s.activity[session]
+	if ok {
+		a.Stopped = stopped
 		s.activity[session] = a
 	}
 	s.mu.Unlock()
+	e := Entry{Client: a.Client, Session: session, App: a.App, BundleID: a.BundleID,
+		Action: "resume", Decision: "allow", Rule: RuleUser}
+	if stopped {
+		e.Action, e.Decision = "stop", "deny"
+	}
+	s.audit(e)
 	s.notify()
 }
 

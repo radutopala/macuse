@@ -41,6 +41,7 @@ func (s *Server) registerUI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /ui/api/answer", s.handleAnswer)
 	mux.HandleFunc("POST /ui/api/pause", s.handlePause)
 	mux.HandleFunc("POST /ui/api/stop", s.handleStop)
+	mux.HandleFunc("POST /ui/api/resume", s.handleResume)
 	mux.HandleFunc("DELETE /ui/api/approvals", s.handleForget)
 	mux.HandleFunc("POST /ui/api/permissions", s.handleRequestPermissions)
 	mux.HandleFunc("POST /ui/api/login-item", s.handleLoginItem)
@@ -126,12 +127,21 @@ func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-type stopRequest struct {
+type sessionRequest struct {
 	Session string `json:"session"`
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
-	var req stopRequest
+	s.handleSession(w, r, s.Stop)
+}
+
+func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
+	s.handleSession(w, r, s.Resume)
+}
+
+// handleSession applies f to the session the request names.
+func (s *Server) handleSession(w http.ResponseWriter, r *http.Request, f func(session string)) {
+	var req sessionRequest
 	if !decode(w, r, &req) {
 		return
 	}
@@ -139,7 +149,7 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fail(proto.CodeInvalidParams, "session is required"))
 		return
 	}
-	s.Stop(req.Session)
+	f(req.Session)
 	w.WriteHeader(http.StatusNoContent)
 }
 

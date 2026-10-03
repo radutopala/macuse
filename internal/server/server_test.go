@@ -469,6 +469,31 @@ func (s *ServerSuite) TestActivityAndSummary() {
 	require.Equal(s.T(), int32(4), s.notified.Load())
 }
 
+func (s *ServerSuite) TestStopAndResumeAreAudited() {
+	s.srv.recordActivity(approval.Caller{Client: "claude", Session: "s1"}, notes, "click")
+	s.srv.Stop("s1")
+	require.True(s.T(), s.srv.Activities()[0].Stopped)
+	s.srv.Resume("s1")
+	require.False(s.T(), s.srv.Activities()[0].Stopped)
+	s.srv.Stop("nobody")
+
+	at := t0.UTC()
+	require.Equal(s.T(), []Entry{
+		{Time: at, Client: "claude", Session: "s1", App: notes.Name, BundleID: notes.BundleID, Action: "stop", Decision: "deny", Rule: RuleUser},
+		{Time: at, Client: "claude", Session: "s1", App: notes.Name, BundleID: notes.BundleID, Action: "resume", Decision: "allow", Rule: RuleUser},
+		{Time: at, Session: "nobody", Action: "stop", Decision: "deny", Rule: RuleUser},
+	}, s.auditLines())
+}
+
+func (s *ServerSuite) TestResumedSessionIsServed() {
+	s.srv.Stop("s1")
+	require.Equal(s.T(), proto.CodeStopped, errCode(s, s.agent(http.MethodPost, "/v1/state", `{"bundle_id":"com.apple.Notes"}`)))
+	s.srv.Resume("s1")
+	_, done, err := s.srv.track(context.Background(), approval.Caller{Session: "s1"})
+	require.NoError(s.T(), err)
+	done()
+}
+
 func (s *ServerSuite) TestAuditWriteFailureIsLogged() {
 	s.srv.Audit = NewAudit(failWriter{}, time.Now)
 	rec := s.agent(http.MethodPost, "/v1/action", `{"bundle_id":"com.apple.Terminal","action":"key","keys":"cmd+q"}`)

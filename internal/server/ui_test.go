@@ -159,10 +159,16 @@ func (s *ServerSuite) TestPauseAndStop() {
 	require.Equal(s.T(), http.StatusNoContent, s.ui(http.MethodPost, "/ui/api/pause", `{"paused":true}`).Code)
 	require.True(s.T(), s.srv.Summary().Paused)
 
-	require.Equal(s.T(), http.StatusBadRequest, s.ui(http.MethodPost, "/ui/api/stop", `x`).Code)
-	require.Equal(s.T(), http.StatusBadRequest, s.ui(http.MethodPost, "/ui/api/stop", `{}`).Code)
+	for _, path := range []string{"/ui/api/stop", "/ui/api/resume"} {
+		s.Run(path, func() {
+			require.Equal(s.T(), http.StatusBadRequest, s.ui(http.MethodPost, path, `x`).Code)
+			require.Equal(s.T(), http.StatusBadRequest, s.ui(http.MethodPost, path, `{}`).Code)
+		})
+	}
 	require.Equal(s.T(), http.StatusNoContent, s.ui(http.MethodPost, "/ui/api/stop", `{"session":"s9"}`).Code)
 	require.True(s.T(), s.srv.stopped["s9"])
+	require.Equal(s.T(), http.StatusNoContent, s.ui(http.MethodPost, "/ui/api/resume", `{"session":"s9"}`).Code)
+	require.False(s.T(), s.srv.stopped["s9"])
 }
 
 func (s *ServerSuite) TestForget() {
