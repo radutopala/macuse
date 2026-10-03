@@ -168,6 +168,9 @@ Errors are `{"error": {"code", "message"}}`, with codes such as `denied`,
 ```sh
 make build           # bin/mac-use for this machine
 make app             # universal dist/mac-use.app (unsigned)
+make install         # signed app in /Applications, mac-use linked into $GOPATH/bin
+make restart         # install, then (re)start it as a login service
+make uninstall       # stop it and remove the app and the link
 make test            # tests
 make coverage-check  # 100% coverage, in Docker
 make lint            # golangci-lint for Linux and macOS, in Docker

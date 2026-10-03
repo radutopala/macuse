@@ -1,4 +1,4 @@
-.PHONY: help build test coverage-check _coverage-check-run lint lint-darwin app sign notarize dist clean
+.PHONY: help build install uninstall restart test coverage-check _coverage-check-run lint lint-darwin app sign notarize dist clean
 .DEFAULT_GOAL := help
 
 help: ## Show available targets
@@ -14,9 +14,31 @@ DIST        := dist
 APP         := $(DIST)/mac-use.app
 # Signing: a "Developer ID Application" identity in the keychain.
 SIGN_IDENTITY ?= Developer ID Application
+# Local install: the app, and a CLI link on the PATH like go install's.
+INSTALL_DIR ?= /Applications
+BIN_DIR     ?= $(shell go env GOPATH)/bin
+INSTALLED   := $(INSTALL_DIR)/mac-use.app/Contents/MacOS/mac-use
 
 build: ## Build bin/mac-use for this machine
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/mac-use ./cmd/mac-use
+
+install: sign ## Install the signed app to INSTALL_DIR and link the CLI into BIN_DIR
+	rm -rf $(INSTALL_DIR)/mac-use.app
+	cp -R $(APP) $(INSTALL_DIR)/
+	mkdir -p $(BIN_DIR)
+	ln -sf $(INSTALLED) $(BIN_DIR)/mac-use
+
+uninstall: ## Stop the service, then remove the app and the CLI link (keeps settings and approvals)
+	@# [m] keeps the pattern from matching this recipe's own shell.
+	@[ ! -x $(INSTALLED) ] || $(INSTALLED) service uninstall
+	@pkill -TERM -f '$(INSTALL_DIR)/mac-use.app/Contents/MacOS/[m]ac-use$$' && echo "Quit the running mac-use" || true
+	rm -rf $(INSTALL_DIR)/mac-use.app
+	rm -f $(BIN_DIR)/mac-use
+
+restart: install ## Install, then stop and start the server
+	@# A copy opened from Finder runs without arguments; quit it so the service takes over.
+	@pkill -TERM -f '$(INSTALL_DIR)/mac-use.app/Contents/MacOS/[m]ac-use$$' && echo "Quit the running mac-use" || true
+	$(INSTALLED) service install
 
 test: ## Run the tests
 	go test -race -count=1 ./...
