@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 // snapshot is the last state read for an app. Indexes and screenshot

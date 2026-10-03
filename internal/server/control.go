@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/radutopala/mac-use/internal/approval"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/approval"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 // activeFor is how long after its last call a session counts as active.
@@ -21,7 +21,7 @@ func (s *Server) track(ctx context.Context, c approval.Caller) (context.Context,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.paused {
-		return nil, nil, fail(proto.CodePaused, "the user paused mac-use; try again once they resume it")
+		return nil, nil, fail(proto.CodePaused, "the user paused macuse; try again once they resume it")
 	}
 	if s.stopped[c.Session] {
 		return nil, nil, fail(proto.CodeStopped, "the user stopped this session from controlling the Mac")
@@ -45,7 +45,7 @@ func (s *Server) interrupted(session string) error {
 	if s.stopped[session] {
 		return fail(proto.CodeStopped, "the user stopped this session from controlling the Mac")
 	}
-	return fail(proto.CodePaused, "the user paused mac-use; try again once they resume it")
+	return fail(proto.CodePaused, "the user paused macuse; try again once they resume it")
 }
 
 // SetPaused pauses or resumes every agent; pausing cancels the calls in

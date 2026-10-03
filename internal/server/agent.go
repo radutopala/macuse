@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/radutopala/mac-use/internal/approval"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/approval"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 // maxName caps the client-supplied names shown to the user.

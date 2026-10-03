@@ -1,4 +1,4 @@
-// Package mcpserver serves the mac-use tools over MCP, calling the HTTP API
+// Package mcpserver serves the macuse tools over MCP, calling the HTTP API
 // for each one.
 package mcpserver
 
@@ -10,11 +10,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/radutopala/mac-use/internal/client"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/client"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
-// API is the mac-use HTTP API. Satisfied by *client.Client.
+// API is the macuse HTTP API. Satisfied by *client.Client.
 type API interface {
 	ListApps(ctx context.Context) ([]proto.App, error)
 	StartApp(ctx context.Context, bundleID string) (proto.App, error)
@@ -30,7 +30,7 @@ type Server struct {
 }
 
 // approvalNote is shared by the tool descriptions that touch an app.
-const approvalNote = " The first use of an app blocks until the user approves it in the mac-use menu bar; terminals, password managers, System Settings and mac-use itself are always refused."
+const approvalNote = " The first use of an app blocks until the user approves it in the macuse menu bar; terminals, password managers, System Settings and macuse itself are always refused."
 
 // foregroundNote explains the foreground option of the keyboard tools.
 const foregroundNote = " Read the state again to check it landed; foreground true brings the app forward for the keys, once the user stops typing, and gives the focus back."
@@ -43,7 +43,7 @@ func New(api API, version string, logger *slog.Logger) *Server {
 	s := &Server{
 		api:    api,
 		logger: logger,
-		mcp:    mcp.NewServer(&mcp.Implementation{Name: "mac-use", Version: version}, nil),
+		mcp:    mcp.NewServer(&mcp.Implementation{Name: "macuse", Version: version}, nil),
 	}
 	s.register()
 	return s

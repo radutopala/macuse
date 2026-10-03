@@ -1,4 +1,4 @@
-module github.com/radutopala/mac-use
+module github.com/radutopala/macuse
 
 go 1.27.1
 

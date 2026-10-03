@@ -1,5 +1,5 @@
-// Command mac-use lets AI agents drive macOS apps, with the user's
-// approval. "mac-use serve" is the menu bar app and its REST API; "mac-use
+// Command macuse lets AI agents drive macOS apps, with the user's
+// approval. "macuse serve" is the menu bar app and its REST API; "macuse
 // mcp" is an MCP server, on the Mac or in a container, that calls the API.
 package main
 

@@ -184,6 +184,6 @@ type Status struct {
 
 // Headers an API client names itself with, for the approval prompt.
 const (
-	HeaderClient  = "X-Mac-Use-Client"
-	HeaderSession = "X-Mac-Use-Session"
+	HeaderClient  = "X-Macuse-Client"
+	HeaderSession = "X-Macuse-Session"
 )

@@ -14,8 +14,8 @@ import (
 
 	"github.com/ebitengine/purego/objc"
 
-	"github.com/radutopala/mac-use/internal/core"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/core"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 // Platform drives macOS through Accessibility, Quartz events and
@@ -143,7 +143,7 @@ func permissionError(msg string) error {
 	return &proto.Error{Code: proto.CodePermission, Message: msg}
 }
 
-var errAccessibility = permissionError("mac-use needs Accessibility access: System Settings › Privacy & Security › Accessibility")
+var errAccessibility = permissionError("macuse needs Accessibility access: System Settings › Privacy & Security › Accessibility")
 
 func axError(code int32, what string) error {
 	switch code {
@@ -416,7 +416,7 @@ func (p *Platform) Tree(win core.Window, lim core.Limits) (root *core.Node, trun
 func (p *Platform) Capture(win core.Window) (img image.Image, err error) {
 	p.do(func() {
 		if !p.l.CGPreflightScreenCaptureAccess() {
-			err = permissionError("mac-use needs Screen Recording access: System Settings › Privacy & Security › Screen & System Audio Recording")
+			err = permissionError("macuse needs Screen Recording access: System Settings › Privacy & Security › Screen & System Audio Recording")
 			return
 		}
 		if p.l.CGWindowListCreateImage == nil {

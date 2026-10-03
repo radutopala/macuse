@@ -17,9 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/radutopala/mac-use/internal/auth"
-	"github.com/radutopala/mac-use/internal/client"
-	"github.com/radutopala/mac-use/internal/config"
+	"github.com/radutopala/macuse/internal/auth"
+	"github.com/radutopala/macuse/internal/client"
+	"github.com/radutopala/macuse/internal/config"
 )
 
 // failReader fails every read; okFirst lets the first n bytes through.
@@ -62,7 +62,7 @@ func (s *AppSuite) SetupTest() {
 	s.app.getenv = func(string) string { return "" }
 	s.app.exists = func(string) bool { return false }
 	s.app.home = func() (string, error) { return s.home, nil }
-	s.app.executable = func() (string, error) { return "/opt/mac-use/mac-use", nil }
+	s.app.executable = func() (string, error) { return "/opt/macuse/macuse", nil }
 	s.app.uid = func() int { return 501 }
 	s.app.command = func(name string, args ...string) error {
 		s.commands = append(s.commands, append([]string{name}, args...))
@@ -103,15 +103,15 @@ func (s *AppSuite) TestRootHelp() {
 }
 
 func (s *AppSuite) TestRootInBundleServes() {
-	s.app.executable = func() (string, error) { return "/Applications/mac-use.app/Contents/MacOS/mac-use", nil }
+	s.app.executable = func() (string, error) { return "/Applications/macuse.app/Contents/MacOS/macuse", nil }
 	s.app.home = func() (string, error) { return "", errors.New("no home") }
 	require.Equal(s.T(), 1, s.run())
-	require.Equal(s.T(), "mac-use: no home\n", s.stderr.String())
+	require.Equal(s.T(), "macuse: no home\n", s.stderr.String())
 }
 
 func (s *AppSuite) TestBadArgs() {
 	require.Equal(s.T(), 1, s.run("nope"))
-	require.Contains(s.T(), s.stderr.String(), "mac-use: unknown command")
+	require.Contains(s.T(), s.stderr.String(), "macuse: unknown command")
 }
 
 func (s *AppSuite) TestToken() {
@@ -145,7 +145,7 @@ func (s *AppSuite) TestServiceInstallUninstall() {
 	require.FileExists(s.T(), s.paths.LaunchAgent)
 	plist, err := os.ReadFile(s.paths.LaunchAgent)
 	require.NoError(s.T(), err)
-	require.Contains(s.T(), string(plist), "<string>/opt/mac-use/mac-use</string>")
+	require.Contains(s.T(), string(plist), "<string>/opt/macuse/macuse</string>")
 	require.Contains(s.T(), string(plist), "<string>"+s.paths.Log+"</string>")
 	require.Equal(s.T(), [][]string{
 		{"launchctl", "bootout", "gui/501/io.github.radutopala.macuse"},
@@ -154,14 +154,14 @@ func (s *AppSuite) TestServiceInstallUninstall() {
 
 	require.Equal(s.T(), 0, s.run("service", "uninstall"))
 	require.NoFileExists(s.T(), s.paths.LaunchAgent)
-	require.Equal(s.T(), "mac-use runs now and at every login.\nmac-use stopped and won't start at login.\n", s.stdout.String())
+	require.Equal(s.T(), "macuse runs now and at every login.\nmacuse stopped and won't start at login.\n", s.stdout.String())
 }
 
 func (s *AppSuite) TestServiceInstallResolvesSymlink() {
-	real := filepath.Join(s.home, "mac-use.app", "Contents", "MacOS", "mac-use")
+	real := filepath.Join(s.home, "macuse.app", "Contents", "MacOS", "macuse")
 	require.NoError(s.T(), os.MkdirAll(filepath.Dir(real), 0o755))
 	require.NoError(s.T(), os.WriteFile(real, nil, 0o755))
-	link := filepath.Join(s.home, "mac-use")
+	link := filepath.Join(s.home, "macuse")
 	require.NoError(s.T(), os.Symlink(real, link))
 	s.app.executable = func() (string, error) { return link, nil }
 	require.Equal(s.T(), 0, s.run("service", "install"))
@@ -217,7 +217,7 @@ func (s *AppSuite) TestClientResolution() {
 		{name: "token file env", env: map[string]string{envTokenFile: tokenFile}, container: true,
 			wantURL: client.ContainerURL, wantToken: "from-file"},
 		{name: "the Mac's token", macToken: true, wantURL: client.LocalURL, wantToken: "mac-token"},
-		{name: "no token", wantErr: "no API token: set MAC_USE_TOKEN (run `mac-use token` on the Mac) or MAC_USE_TOKEN_FILE"},
+		{name: "no token", wantErr: "no API token: set MACUSE_TOKEN (run `macuse token` on the Mac) or MACUSE_TOKEN_FILE"},
 	}
 	for _, tc := range tests {
 		s.Run(tc.name, func() {
@@ -260,7 +260,7 @@ func (s *AppSuite) TestStatus() {
 		{"granted", `{"version":"v1","permissions":{"accessibility":true,"screen_recording":true}}`,
 			"accessibility: granted\nscreen recording: granted\n"},
 		{"paused and missing", `{"version":"v1","paused":true,"permissions":{"accessibility":false,"screen_recording":true}}`,
-			"paused: agents can't use the Mac until you resume\naccessibility: missing; grant it from the mac-use menu bar\nscreen recording: granted\n"},
+			"paused: agents can't use the Mac until you resume\naccessibility: missing; grant it from the macuse menu bar\nscreen recording: granted\n"},
 		{"no permissions", `{"version":"v1"}`, ""},
 	}
 	for _, tc := range tests {
@@ -268,12 +268,12 @@ func (s *AppSuite) TestStatus() {
 			s.SetupTest()
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				require.Equal(s.T(), "Bearer tok", r.Header.Get("Authorization"))
-				require.Equal(s.T(), "mac-use status", r.Header.Get("X-Mac-Use-Client"))
+				require.Equal(s.T(), "macuse status", r.Header.Get("X-Macuse-Client"))
 				_, _ = io.WriteString(w, tc.body)
 			}))
 			defer srv.Close()
 			require.Equal(s.T(), 0, s.run("status", "--url", srv.URL, "--token", "tok"))
-			require.Equal(s.T(), "mac-use v1 at "+srv.URL+"\n"+tc.want, s.stdout.String())
+			require.Equal(s.T(), "macuse v1 at "+srv.URL+"\n"+tc.want, s.stdout.String())
 		})
 	}
 }
@@ -309,7 +309,7 @@ func (s *AppSuite) TestMCP() {
 		names = append(names, t.Name)
 	}
 	require.Contains(s.T(), names, "get_state")
-	require.Equal(s.T(), "mac-use", session.InitializeResult().ServerInfo.Name)
+	require.Equal(s.T(), "macuse", session.InitializeResult().ServerInfo.Name)
 	require.NoError(s.T(), session.Close())
 	require.Equal(s.T(), 0, <-done)
 }

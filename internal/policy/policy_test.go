@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 type PolicySuite struct {
@@ -45,7 +45,7 @@ func (s *PolicySuite) TestDenied() {
 		{"terminal", nil, "com.apple.Terminal", true},
 		{"case-insensitive", nil, "COM.APPLE.TERMINAL", true},
 		{"iterm", nil, "com.googlecode.iterm2", true},
-		{"mac-use itself", nil, "io.github.radutopala.macuse", true},
+		{"macuse itself", nil, "io.github.radutopala.macuse", true},
 		{"system settings", nil, "com.apple.systempreferences", true},
 		{"keychain", nil, "com.apple.keychainaccess", true},
 		{"password manager", nil, "com.1password.1password", true},

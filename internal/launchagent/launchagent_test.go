@@ -29,8 +29,8 @@ func (s *AgentSuite) SetupTest() {
 	s.agent = Agent{
 		Path:  filepath.Join(s.dir, "LaunchAgents", "io.example.app.plist"),
 		Label: "io.example.app",
-		Exe:   "/Applications/A & B.app/Contents/MacOS/mac-use",
-		Log:   filepath.Join(s.dir, "Logs", "mac-use", "mac-use.log"),
+		Exe:   "/Applications/A & B.app/Contents/MacOS/macuse",
+		Log:   filepath.Join(s.dir, "Logs", "macuse", "macuse.log"),
 		UID:   501,
 		Run: func(name string, args ...string) error {
 			s.calls = append(s.calls, append([]string{name}, args...))
@@ -42,7 +42,7 @@ func (s *AgentSuite) SetupTest() {
 func (s *AgentSuite) TestPlist() {
 	p := string(s.agent.Plist())
 	require.Contains(s.T(), p, "<string>io.example.app</string>")
-	require.Contains(s.T(), p, "<string>/Applications/A &amp; B.app/Contents/MacOS/mac-use</string>\n\t\t<string>serve</string>")
+	require.Contains(s.T(), p, "<string>/Applications/A &amp; B.app/Contents/MacOS/macuse</string>\n\t\t<string>serve</string>")
 	require.Contains(s.T(), p, "<key>SuccessfulExit</key>\n\t\t<false/>")
 	require.Contains(s.T(), p, "<string>Aqua</string>")
 	require.Contains(s.T(), p, "<key>StandardErrorPath</key>\n\t<string>"+s.agent.Log+"</string>")

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 type ClientSuite struct {
@@ -114,8 +114,8 @@ func (s *ClientSuite) TestErrors() {
 		msg    string
 	}{
 		{"API error", 403, `{"error":{"code":"denied","message":"no"}}`, proto.CodeDenied, "no"},
-		{"plain error", 502, "bad gateway\n", proto.CodeInternal, "mac-use answered 502 Bad Gateway: bad gateway"},
-		{"bad JSON", 200, `[`, proto.CodeInternal, "bad mac-use answer"},
+		{"plain error", 502, "bad gateway\n", proto.CodeInternal, "macuse answered 502 Bad Gateway: bad gateway"},
+		{"bad JSON", 200, `[`, proto.CodeInternal, "bad macuse answer"},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
@@ -135,7 +135,7 @@ func (s *ClientSuite) TestTruncatedBody() {
 		_, _ = io.WriteString(w, "{")
 	}
 	_, err := s.c.ListApps(context.Background())
-	require.ErrorContains(s.T(), err, "reading the mac-use answer failed")
+	require.ErrorContains(s.T(), err, "reading the macuse answer failed")
 }
 
 func (s *ClientSuite) TestUnreachableAndBadURL() {

@@ -26,7 +26,7 @@ var popoverSize = nsSize{W: 360, H: 440}
 
 // menuTargetClass receives the status item's clicks; registered once per
 // process.
-const menuTargetClass = "MacUseMenuTarget"
+const menuTargetClass = "MacuseMenuTarget"
 
 type menuBar struct {
 	app     objc.ID
@@ -103,7 +103,7 @@ func (p *Platform) updateMenuBar(st MenuState) {
 	}
 	if sym := st.Symbol(); sym != m.symbol {
 		img := objc.ID(objc.GetClass("NSImage")).Send(p.s("imageWithSystemSymbolName:accessibilityDescription:"),
-			objc.ID(p.attr(sym)), objc.ID(p.attr("mac-use")))
+			objc.ID(p.attr(sym)), objc.ID(p.attr("macuse")))
 		img.Send(p.s("setTemplate:"), true)
 		m.button.Send(p.s("setImage:"), img)
 		m.symbol = sym

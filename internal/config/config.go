@@ -1,4 +1,4 @@
-// Package config locates mac-use's files and loads its settings.
+// Package config locates macuse's files and loads its settings.
 package config
 
 import (
@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/radutopala/mac-use/internal/buildinfo"
+	"github.com/radutopala/macuse/internal/buildinfo"
 )
 
 // DefaultListen is where the API listens: loopback only. Docker Desktop
@@ -20,27 +20,27 @@ const DefaultListen = "127.0.0.1:7710"
 // DefaultApprovalTimeout is how long an agent waits for the user to answer.
 const DefaultApprovalTimeout = 2 * time.Minute
 
-// Paths are the files mac-use keeps.
+// Paths are the files macuse keeps.
 type Paths struct {
-	Dir         string // ~/Library/Application Support/mac-use
+	Dir         string // ~/Library/Application Support/macuse
 	Config      string // config.json
 	Token       string // the API token, 0600
 	Approvals   string // approvals.json
-	Audit       string // ~/Library/Logs/mac-use/audit.jsonl
-	Log         string // ~/Library/Logs/mac-use/mac-use.log, the LaunchAgent's output
+	Audit       string // ~/Library/Logs/macuse/audit.jsonl
+	Log         string // ~/Library/Logs/macuse/macuse.log, the LaunchAgent's output
 	LaunchAgent string // ~/Library/LaunchAgents/<bundle id>.plist
 }
 
 // NewPaths returns the paths under home.
 func NewPaths(home string) Paths {
-	dir := filepath.Join(home, "Library", "Application Support", "mac-use")
+	dir := filepath.Join(home, "Library", "Application Support", "macuse")
 	return Paths{
 		Dir:         dir,
 		Config:      filepath.Join(dir, "config.json"),
 		Token:       filepath.Join(dir, "token"),
 		Approvals:   filepath.Join(dir, "approvals.json"),
-		Audit:       filepath.Join(home, "Library", "Logs", "mac-use", "audit.jsonl"),
-		Log:         filepath.Join(home, "Library", "Logs", "mac-use", "mac-use.log"),
+		Audit:       filepath.Join(home, "Library", "Logs", "macuse", "audit.jsonl"),
+		Log:         filepath.Join(home, "Library", "Logs", "macuse", "macuse.log"),
 		LaunchAgent: filepath.Join(home, "Library", "LaunchAgents", buildinfo.BundleID+".plist"),
 	}
 }

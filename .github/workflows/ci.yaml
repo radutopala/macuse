@@ -72,4 +72,4 @@ jobs:
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
-        run: go build -o mac-use-linux-${{ matrix.goarch }} ./cmd/mac-use
+        run: go build -o macuse-linux-${{ matrix.goarch }} ./cmd/macuse

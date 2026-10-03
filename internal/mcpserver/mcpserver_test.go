@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/radutopala/mac-use/internal/client"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/client"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 type mockAPI struct{ mock.Mock }

@@ -16,11 +16,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"github.com/radutopala/mac-use/internal/auth"
-	"github.com/radutopala/mac-use/internal/buildinfo"
-	"github.com/radutopala/mac-use/internal/config"
-	"github.com/radutopala/mac-use/internal/launchagent"
-	"github.com/radutopala/mac-use/internal/native"
+	"github.com/radutopala/macuse/internal/auth"
+	"github.com/radutopala/macuse/internal/buildinfo"
+	"github.com/radutopala/macuse/internal/clilink"
+	"github.com/radutopala/macuse/internal/config"
+	"github.com/radutopala/macuse/internal/launchagent"
+	"github.com/radutopala/macuse/internal/native"
+	"github.com/radutopala/macuse/internal/update"
 )
 
 // app holds the CLI's dependencies, swapped per test.
@@ -37,7 +39,19 @@ type app struct {
 	listen         func(network, addr string) (net.Listener, error)
 	newPlatform    func(*slog.Logger) (native.Runner, error)
 	command        func(name string, args ...string) error
-	// stdio is the MCP transport "mac-use mcp" serves.
+	// output runs a command, returning its combined output.
+	output func(ctx context.Context, name string, args ...string) ([]byte, error)
+	// start starts a command that outlives this process.
+	start func(name string, args ...string) error
+	pid   func() int
+	// version is this build's, which updates compare against.
+	version     string
+	updateFeed  string
+	updateEvery time.Duration
+	// cliFallback is the CLI link an administrator creates when no
+	// directory on the user's PATH is writable.
+	cliFallback string
+	// stdio is the MCP transport "macuse mcp" serves.
 	stdio mcp.Transport
 	// tick paces the menu bar's refresh.
 	tick time.Duration
@@ -60,6 +74,13 @@ func newApp() *app {
 		listen:      net.Listen,
 		newPlatform: native.New,
 		command:     runCommand,
+		output:      runOutput,
+		start:       startDetached,
+		pid:         os.Getpid,
+		version:     buildinfo.Version,
+		updateFeed:  update.DefaultFeed,
+		updateEvery: 30 * time.Minute,
+		cliFallback: clilink.Fallback,
 		stdio:       &mcp.StdioTransport{},
 		tick:        time.Second,
 		grace:       5 * time.Second,
@@ -79,7 +100,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 	root := a.root()
 	root.SetArgs(args)
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(a.stderr, "mac-use:", err)
+		fmt.Fprintln(a.stderr, "macuse:", err)
 		return 1
 	}
 	return 0
@@ -94,7 +115,7 @@ func (a *app) bundled() bool {
 
 func (a *app) root() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "mac-use",
+		Use:           "macuse",
 		Short:         "Let AI agents drive macOS apps, with your approval",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -178,7 +199,7 @@ func (a *app) agent(p config.Paths) (launchagent.Agent, error) {
 func (a *app) serviceCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "service",
-		Short: "Start mac-use at login, as a LaunchAgent",
+		Short: "Start macuse at login, as a LaunchAgent",
 	}
 	withAgent := func(f func(launchagent.Agent) error) func(*cobra.Command, []string) error {
 		return func(*cobra.Command, []string) error {
@@ -196,25 +217,25 @@ func (a *app) serviceCommand() *cobra.Command {
 	cmd.AddCommand(
 		&cobra.Command{
 			Use:   "install",
-			Short: "Start mac-use now and at every login",
+			Short: "Start macuse now and at every login",
 			Args:  cobra.NoArgs,
 			RunE: withAgent(func(ag launchagent.Agent) error {
 				if err := ag.Install(); err != nil {
 					return err
 				}
-				fmt.Fprintln(a.stdout, "mac-use runs now and at every login.")
+				fmt.Fprintln(a.stdout, "macuse runs now and at every login.")
 				return nil
 			}),
 		},
 		&cobra.Command{
 			Use:   "uninstall",
-			Short: "Stop mac-use and don't start it at login",
+			Short: "Stop macuse and don't start it at login",
 			Args:  cobra.NoArgs,
 			RunE: withAgent(func(ag launchagent.Agent) error {
 				if err := ag.Uninstall(); err != nil {
 					return err
 				}
-				fmt.Fprintln(a.stdout, "mac-use stopped and won't start at login.")
+				fmt.Fprintln(a.stdout, "macuse stopped and won't start at login.")
 				return nil
 			}),
 		},

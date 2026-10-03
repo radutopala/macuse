@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 // Rules name where a decision came from, for the audit log.

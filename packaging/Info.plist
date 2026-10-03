@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>mac-use</string>
+	<string>macuse</string>
 	<key>CFBundleExecutable</key>
-	<string>mac-use</string>
+	<string>macuse</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.radutopala.macuse</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>mac-use</string>
+	<string>macuse</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

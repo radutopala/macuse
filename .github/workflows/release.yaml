@@ -57,4 +57,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --generate-notes
-          gh release upload "$RELEASE_TAG" dist/mac-use_*.zip dist/mac-use_*.tar.gz dist/checksums.txt --clobber
+          gh release upload "$RELEASE_TAG" dist/macuse_*.zip dist/macuse_*.tar.gz dist/checksums.txt --clobber
+
+      # The cask installs the app and links its binary as the CLI. The app
+      # updates itself from the release's checksums.txt.
+      - name: Publish the Homebrew cask
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          SHA256=$(shasum -a 256 "dist/macuse_${VERSION}_macos.zip" | cut -d' ' -f1)
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/radutopala/homebrew-tap.git" "$RUNNER_TEMP/tap"
+          mkdir -p "$RUNNER_TEMP/tap/Casks"
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$SHA256/" packaging/macuse.rb > "$RUNNER_TEMP/tap/Casks/macuse.rb"
+          cd "$RUNNER_TEMP/tap"
+          git config user.name "Radu Topala"
+          git config user.email "radu.topala@trisoft.ro"
+          git add Casks/macuse.rb
+          git diff --cached --quiet || git commit -m "macuse ${VERSION}"
+          git push

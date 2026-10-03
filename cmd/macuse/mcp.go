@@ -6,17 +6,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/radutopala/mac-use/internal/auth"
-	"github.com/radutopala/mac-use/internal/buildinfo"
-	"github.com/radutopala/mac-use/internal/client"
-	"github.com/radutopala/mac-use/internal/mcpserver"
+	"github.com/radutopala/macuse/internal/auth"
+	"github.com/radutopala/macuse/internal/buildinfo"
+	"github.com/radutopala/macuse/internal/client"
+	"github.com/radutopala/macuse/internal/mcpserver"
 )
 
 // Environment variables the client reads, for containers.
 const (
-	envURL       = "MAC_USE_URL"
-	envToken     = "MAC_USE_TOKEN"
-	envTokenFile = "MAC_USE_TOKEN_FILE"
+	envURL       = "MACUSE_URL"
+	envToken     = "MACUSE_TOKEN"
+	envTokenFile = "MACUSE_TOKEN_FILE"
 )
 
 // clientFlags pick the API and its token.
@@ -53,7 +53,7 @@ func (a *app) client(f clientFlags, name string) (*client.Client, error) {
 		}
 		var err error
 		if tok, err = auth.Read(path); err != nil {
-			return nil, fmt.Errorf("no API token: set %s (run `mac-use token` on the Mac) or %s: %w", envToken, envTokenFile, err)
+			return nil, fmt.Errorf("no API token: set %s (run `macuse token` on the Mac) or %s: %w", envToken, envTokenFile, err)
 		}
 	}
 	session, err := a.tokens.New()
@@ -73,7 +73,7 @@ func (a *app) mcpCommand() *cobra.Command {
 	var f clientFlags
 	cmd := &cobra.Command{
 		Use:   "mcp",
-		Short: "Serve the mac-use tools over MCP on stdio, calling the API",
+		Short: "Serve the macuse tools over MCP on stdio, calling the API",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client(f, "mcp client")
@@ -96,7 +96,7 @@ func (a *app) statusCommand() *cobra.Command {
 		Short: "Check that the API answers, and show its state",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			c, err := a.client(f, "mac-use status")
+			c, err := a.client(f, "macuse status")
 			if err != nil {
 				return err
 			}
@@ -104,7 +104,7 @@ func (a *app) statusCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(a.stdout, "mac-use %s at %s\n", st.Version, c.BaseURL)
+			fmt.Fprintf(a.stdout, "macuse %s at %s\n", st.Version, c.BaseURL)
 			if st.Paused {
 				fmt.Fprintln(a.stdout, "paused: agents can't use the Mac until you resume")
 			}
@@ -122,5 +122,5 @@ func granted(ok bool) string {
 	if ok {
 		return "granted"
 	}
-	return "missing; grant it from the mac-use menu bar"
+	return "missing; grant it from the macuse menu bar"
 }

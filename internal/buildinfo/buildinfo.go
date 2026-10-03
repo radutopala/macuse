@@ -1,4 +1,4 @@
-// Package buildinfo holds what identifies this build of mac-use.
+// Package buildinfo holds what identifies this build of macuse.
 package buildinfo
 
 // BundleID is the app bundle's identifier. macOS ties the Accessibility and

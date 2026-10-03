@@ -20,9 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/radutopala/mac-use/internal/approval"
-	"github.com/radutopala/mac-use/internal/policy"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/approval"
+	"github.com/radutopala/macuse/internal/policy"
+	"github.com/radutopala/macuse/internal/proto"
+	"github.com/radutopala/macuse/internal/update"
 )
 
 type mockEngine struct{ mock.Mock }
@@ -35,7 +36,17 @@ type mockHost struct{ mock.Mock }
 
 func (m *mockHost) LoginItem() bool            { return m.Called().Bool(0) }
 func (m *mockHost) SetLoginItem(on bool) error { return m.Called(on).Error(0) }
+func (m *mockHost) CLI() string                { return m.Called().String(0) }
+func (m *mockHost) InstallCLI() error          { return m.Called().Error(0) }
 func (m *mockHost) Quit()                      { m.Called() }
+
+type mockUpdater struct{ mock.Mock }
+
+func (m *mockUpdater) Status() update.Status { return m.Called().Get(0).(update.Status) }
+func (m *mockUpdater) CheckNow(ctx context.Context) update.Status {
+	return m.Called(ctx).Get(0).(update.Status)
+}
+func (m *mockUpdater) InstallNow(ctx context.Context) error { return m.Called(ctx).Error(0) }
 
 func method(name string) any {
 	return mock.MatchedBy(func(r proto.Request) bool { return r.Method == name })

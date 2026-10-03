@@ -1,4 +1,4 @@
-// Package client calls the mac-use HTTP API, from the Mac itself or from a
+// Package client calls the macuse HTTP API, from the Mac itself or from a
 // container on it.
 package client
 
@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 // Base URLs of the API: on the Mac, and from a container, where the
@@ -104,7 +104,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.BaseURL, "/")+path, body)
 	if err != nil {
-		return &proto.Error{Code: proto.CodeInvalidParams, Message: "bad mac-use URL: " + err.Error()}
+		return &proto.Error{Code: proto.CodeInvalidParams, Message: "bad macuse URL: " + err.Error()}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
@@ -121,22 +121,22 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 			hint += " (from a container, use " + ContainerURL + ")"
 		}
 		return &proto.Error{Code: proto.CodeHelperUnavailable, Message: fmt.Sprintf(
-			"can't reach mac-use at %s (%v); %s", c.BaseURL, err, hint)}
+			"can't reach macuse at %s (%v); %s", c.BaseURL, err, hint)}
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return &proto.Error{Code: proto.CodeHelperUnavailable, Message: "reading the mac-use answer failed: " + err.Error()}
+		return &proto.Error{Code: proto.CodeHelperUnavailable, Message: "reading the macuse answer failed: " + err.Error()}
 	}
 	if resp.StatusCode >= 300 {
 		var eb proto.ErrorBody
 		if json.Unmarshal(data, &eb) == nil && eb.Error != nil {
 			return eb.Error
 		}
-		return &proto.Error{Code: proto.CodeInternal, Message: fmt.Sprintf("mac-use answered %s: %s", resp.Status, strings.TrimSpace(string(data)))}
+		return &proto.Error{Code: proto.CodeInternal, Message: fmt.Sprintf("macuse answered %s: %s", resp.Status, strings.TrimSpace(string(data)))}
 	}
 	if err := json.Unmarshal(data, out); err != nil {
-		return &proto.Error{Code: proto.CodeInternal, Message: "bad mac-use answer: " + err.Error()}
+		return &proto.Error{Code: proto.CodeInternal, Message: "bad macuse answer: " + err.Error()}
 	}
 	return nil
 }

@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 // Tokens creates and reads token files. Rand is the entropy source.
@@ -79,7 +79,7 @@ func Bearer(token string, next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(proto.ErrorBody{Error: &proto.Error{
 				Code:    proto.CodeUnauthorized,
-				Message: "missing or wrong token; run `mac-use token` on the Mac to get it",
+				Message: "missing or wrong token; run `macuse token` on the Mac to get it",
 			}})
 			return
 		}

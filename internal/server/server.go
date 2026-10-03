@@ -1,4 +1,4 @@
-// Package server is the mac-use HTTP API: the agent routes under /v1,
+// Package server is the macuse HTTP API: the agent routes under /v1,
 // behind the bearer token, and the menu bar popup's routes under /ui,
 // behind a key only the running app knows.
 package server
@@ -12,10 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/radutopala/mac-use/internal/approval"
-	"github.com/radutopala/mac-use/internal/auth"
-	"github.com/radutopala/mac-use/internal/policy"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/approval"
+	"github.com/radutopala/macuse/internal/auth"
+	"github.com/radutopala/macuse/internal/policy"
+	"github.com/radutopala/macuse/internal/proto"
+	"github.com/radutopala/macuse/internal/update"
 )
 
 // Engine serves desktop requests. Satisfied by *core.Service.
@@ -23,23 +24,37 @@ type Engine interface {
 	Handle(req proto.Request) proto.Response
 }
 
-// Host is what the popup controls beyond the API: the login item and the
-// app itself.
+// Host is what the popup controls beyond the API: the login item, the CLI
+// link and the app itself.
 type Host interface {
 	LoginItem() bool
 	SetLoginItem(on bool) error
+	// CLI is "installed" or "missing", or "" where this copy can't link
+	// the CLI because it doesn't run from the app.
+	CLI() string
+	InstallCLI() error
 	Quit()
+}
+
+// Updater keeps the app current. Satisfied by *update.Manager.
+type Updater interface {
+	Status() update.Status
+	CheckNow(ctx context.Context) update.Status
+	InstallNow(ctx context.Context) error
 }
 
 // Deps wires a Server.
 type Deps struct {
-	Engine  Engine
-	Gate    *approval.Gate
-	Broker  *approval.Broker
-	Store   *approval.Store
-	Policy  *policy.Policy
-	Audit   *Audit
-	Host    Host
+	Engine Engine
+	Gate   *approval.Gate
+	Broker *approval.Broker
+	Store  *approval.Store
+	Policy *policy.Policy
+	Audit  *Audit
+	Host   Host
+	// Updater is nil where the app can't update itself: builds between
+	// releases, and the binary run outside the app.
+	Updater Updater
 	Logger  *slog.Logger
 	Now     func() time.Time
 	Token   string

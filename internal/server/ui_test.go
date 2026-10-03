@@ -13,8 +13,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/radutopala/mac-use/internal/approval"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/approval"
+	"github.com/radutopala/macuse/internal/proto"
+	"github.com/radutopala/macuse/internal/update"
 )
 
 func (s *ServerSuite) TestUIAuth() {
@@ -38,6 +39,7 @@ func (s *ServerSuite) TestUIAuth() {
 			s.srv.UIKey = tt.uiKey
 			if tt.status == http.StatusOK && tt.target != "/ui?key=uikey" {
 				s.host.On("LoginItem").Return(false)
+				s.host.On("CLI").Return("")
 				s.engine.On("Handle", method(proto.MethodPermissions)).Return(ok(proto.Permissions{}))
 			}
 			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
@@ -56,7 +58,7 @@ func (s *ServerSuite) TestIndex() {
 	rec := httptest.NewRecorder()
 	s.h.ServeHTTP(rec, req)
 	require.Equal(s.T(), "text/html; charset=utf-8", rec.Header().Get("Content-Type"))
-	require.Contains(s.T(), rec.Body.String(), "<title>mac-use</title>")
+	require.Contains(s.T(), rec.Body.String(), "<title>macuse</title>")
 	require.NotEmpty(s.T(), rec.Header().Get("Content-Security-Policy"))
 }
 
@@ -64,7 +66,11 @@ func (s *ServerSuite) TestUIState() {
 	require.NoError(s.T(), s.store.Save(approval.Saved{BundleID: "com.a", Name: "A", Decision: approval.Deny}))
 	s.srv.recordActivity(approval.Caller{Client: "c", Session: "s"}, notes, "click")
 	s.host.On("LoginItem").Return(true)
+	s.host.On("CLI").Return("missing")
 	s.engine.On("Handle", method(proto.MethodPermissions)).Return(ok(proto.Permissions{Accessibility: true, ScreenRecording: true}))
+	up := new(mockUpdater)
+	up.On("Status").Return(update.Status{Current: "v1.2.3", Latest: "1.2.4", Available: true})
+	s.srv.Updater = up
 	rec := s.ui(http.MethodGet, "/ui/api/state", "")
 	require.Equal(s.T(), http.StatusOK, rec.Code)
 	var st UIState
@@ -75,6 +81,53 @@ func (s *ServerSuite) TestUIState() {
 	require.Len(s.T(), st.Activity, 1)
 	require.Empty(s.T(), st.Pending)
 	require.True(s.T(), st.Permissions.ScreenRecording)
+	require.Equal(s.T(), "missing", st.CLI)
+	require.Equal(s.T(), &update.Status{Current: "v1.2.3", Latest: "1.2.4", Available: true}, st.Update)
+	up.AssertExpectations(s.T())
+}
+
+func (s *ServerSuite) TestUIStateWithoutUpdater() {
+	s.host.On("LoginItem").Return(false)
+	s.host.On("CLI").Return("")
+	s.engine.On("Handle", method(proto.MethodPermissions)).Return(ok(proto.Permissions{}))
+	rec := s.ui(http.MethodGet, "/ui/api/state", "")
+	require.NotContains(s.T(), rec.Body.String(), `"update"`)
+	require.NotContains(s.T(), rec.Body.String(), `"cli"`)
+}
+
+func (s *ServerSuite) TestInstallCLI() {
+	s.host.On("CLI").Return("").Once()
+	require.Equal(s.T(), http.StatusNotImplemented, s.ui(http.MethodPost, "/ui/api/cli", "").Code)
+
+	s.host.On("CLI").Return("missing")
+	s.host.On("InstallCLI").Return(nil).Once()
+	require.Equal(s.T(), http.StatusNoContent, s.ui(http.MethodPost, "/ui/api/cli", "").Code)
+
+	s.host.On("InstallCLI").Return(errors.New("User canceled.")).Once()
+	rec := s.ui(http.MethodPost, "/ui/api/cli", "")
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Contains(s.T(), rec.Body.String(), "installing the CLI failed: User canceled.")
+}
+
+func (s *ServerSuite) TestUpdates() {
+	require.Equal(s.T(), http.StatusNotImplemented, s.ui(http.MethodPost, "/ui/api/update/check", "").Code)
+	require.Equal(s.T(), http.StatusNotImplemented, s.ui(http.MethodPost, "/ui/api/update/install", "").Code)
+
+	up := new(mockUpdater)
+	s.srv.Updater = up
+	up.On("CheckNow", mock.Anything).Return(update.Status{Current: "v1.2.3", Latest: "1.2.3"}).Once()
+	rec := s.ui(http.MethodPost, "/ui/api/update/check", "")
+	require.Equal(s.T(), http.StatusOK, rec.Code)
+	require.JSONEq(s.T(), `{"current":"v1.2.3","latest":"1.2.3","available":false}`, rec.Body.String())
+
+	up.On("InstallNow", mock.Anything).Return(errors.New("there is no update to install")).Once()
+	rec = s.ui(http.MethodPost, "/ui/api/update/install", "")
+	require.Equal(s.T(), http.StatusInternalServerError, rec.Code)
+	require.Contains(s.T(), rec.Body.String(), "there is no update to install")
+
+	up.On("InstallNow", mock.Anything).Return(nil).Once()
+	require.Equal(s.T(), http.StatusNoContent, s.ui(http.MethodPost, "/ui/api/update/install", "").Code)
+	up.AssertExpectations(s.T())
 }
 
 func (s *ServerSuite) TestAnswer() {

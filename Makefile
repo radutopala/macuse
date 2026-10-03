@@ -7,37 +7,37 @@ help: ## Show available targets
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # The bundle version is the tag's numbers (v2026.10.1 -> 2026.10.1).
 APP_VERSION ?= $(shell echo $(VERSION) | sed -E 's/^v//; s/[^0-9.].*$$//; s/^$$/0.0.0/')
-LDFLAGS     := -s -w -X github.com/radutopala/mac-use/internal/buildinfo.Version=$(VERSION)
+LDFLAGS     := -s -w -X github.com/radutopala/macuse/internal/buildinfo.Version=$(VERSION)
 GO_IMAGE    ?= golang:1.27
 LINT_IMAGE  ?= golangci/golangci-lint:v2.13.1
 DIST        := dist
-APP         := $(DIST)/mac-use.app
+APP         := $(DIST)/macuse.app
 # Signing: a "Developer ID Application" identity in the keychain.
 SIGN_IDENTITY ?= Developer ID Application
 # Local install: the app, and a CLI link on the PATH like go install's.
 INSTALL_DIR ?= /Applications
 BIN_DIR     ?= $(shell go env GOPATH)/bin
-INSTALLED   := $(INSTALL_DIR)/mac-use.app/Contents/MacOS/mac-use
+INSTALLED   := $(INSTALL_DIR)/macuse.app/Contents/MacOS/macuse
 
-build: ## Build bin/mac-use for this machine
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/mac-use ./cmd/mac-use
+build: ## Build bin/macuse for this machine
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/macuse ./cmd/macuse
 
 install: sign ## Install the signed app to INSTALL_DIR and link the CLI into BIN_DIR
-	rm -rf $(INSTALL_DIR)/mac-use.app
+	rm -rf $(INSTALL_DIR)/macuse.app
 	cp -R $(APP) $(INSTALL_DIR)/
 	mkdir -p $(BIN_DIR)
-	ln -sf $(INSTALLED) $(BIN_DIR)/mac-use
+	ln -sf $(INSTALLED) $(BIN_DIR)/macuse
 
 uninstall: ## Stop the service, then remove the app and the CLI link (keeps settings and approvals)
 	@# [m] keeps the pattern from matching this recipe's own shell.
 	@[ ! -x $(INSTALLED) ] || $(INSTALLED) service uninstall
-	@pkill -TERM -f '$(INSTALL_DIR)/mac-use.app/Contents/MacOS/[m]ac-use$$' && echo "Quit the running mac-use" || true
-	rm -rf $(INSTALL_DIR)/mac-use.app
-	rm -f $(BIN_DIR)/mac-use
+	@pkill -TERM -f '$(INSTALL_DIR)/macuse.app/Contents/MacOS/[m]ac-use$$' && echo "Quit the running macuse" || true
+	rm -rf $(INSTALL_DIR)/macuse.app
+	rm -f $(BIN_DIR)/macuse
 
 restart: install ## Install, then stop and start the server
 	@# A copy opened from Finder runs without arguments; quit it so the service takes over.
-	@pkill -TERM -f '$(INSTALL_DIR)/mac-use.app/Contents/MacOS/[m]ac-use$$' && echo "Quit the running mac-use" || true
+	@pkill -TERM -f '$(INSTALL_DIR)/macuse.app/Contents/MacOS/[m]ac-use$$' && echo "Quit the running macuse" || true
 	$(INSTALLED) service install
 
 test: ## Run the tests
@@ -48,7 +48,7 @@ _coverage-check-run:
 	@# Counted from the raw profile: `go tool cover -func` rounds its total to
 	@# one decimal. With -coverpkg a block repeats once per test binary; it is
 	@# covered if any hit it. main.go is only main(): signals, args and exit.
-	@awk 'NR > 1 && $$1 !~ /cmd\/mac-use\/main\.go:/ { split($$0, f, " "); n[f[1]] = f[2]; if (f[3] > 0) hit[f[1]] = 1 } \
+	@awk 'NR > 1 && $$1 !~ /cmd\/macuse\/main\.go:/ { split($$0, f, " "); n[f[1]] = f[2]; if (f[3] > 0) hit[f[1]] = 1 } \
 		END { for (b in n) { total += n[b]; if (!(b in hit) && n[b] > 0) { miss += n[b]; print "uncovered: " b " (" n[b] " stmts)" | "sort" } } \
 		close("sort"); \
 		if (miss > 0) { printf "Coverage is %.4f%% (%d of %d statements uncovered), required 100%%\n", 100 * (total - miss) / total, miss, total; exit 1 } \
@@ -68,13 +68,13 @@ lint: ## Run golangci-lint for Linux and macOS builds (with auto-fix)
 lint-darwin:
 	docker run --rm -e GOOS=darwin -e GOARCH=arm64 -v "$$(pwd)":/src -w /src $(LINT_IMAGE) golangci-lint run -v ./...
 
-app: ## Build the universal dist/mac-use.app
+app: ## Build the universal dist/macuse.app
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/mac-use-darwin-arm64 ./cmd/mac-use
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/mac-use-darwin-amd64 ./cmd/mac-use
-	lipo -create -output $(APP)/Contents/MacOS/mac-use $(DIST)/mac-use-darwin-arm64 $(DIST)/mac-use-darwin-amd64
-	rm $(DIST)/mac-use-darwin-arm64 $(DIST)/mac-use-darwin-amd64
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/macuse-darwin-arm64 ./cmd/macuse
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/macuse-darwin-amd64 ./cmd/macuse
+	lipo -create -output $(APP)/Contents/MacOS/macuse $(DIST)/macuse-darwin-arm64 $(DIST)/macuse-darwin-amd64
+	rm $(DIST)/macuse-darwin-arm64 $(DIST)/macuse-darwin-amd64
 	sed 's/@VERSION@/$(APP_VERSION)/g' packaging/Info.plist > $(APP)/Contents/Info.plist
 	plutil -lint $(APP)/Contents/Info.plist
 
@@ -90,13 +90,13 @@ notarize: sign ## Notarize and staple the app (needs APPLE_ID, APPLE_APP_SPECIFI
 	spctl --assess --type execute --verbose $(APP)
 
 dist: notarize ## Notarized app zip plus Linux MCP client binaries, with checksums
-	cd $(DIST) && ditto -c -k --keepParent mac-use.app mac-use_$(VERSION)_macos.zip
+	cd $(DIST) && ditto -c -k --keepParent macuse.app macuse_$(APP_VERSION)_macos.zip
 	for arch in amd64 arm64; do \
 		mkdir -p $(DIST)/linux-$$arch && cp LICENSE $(DIST)/linux-$$arch/ && \
-		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o $(DIST)/linux-$$arch/mac-use ./cmd/mac-use && \
-		tar -czf $(DIST)/mac-use_$(VERSION)_linux_$$arch.tar.gz -C $(DIST)/linux-$$arch mac-use LICENSE || exit 1; \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o $(DIST)/linux-$$arch/macuse ./cmd/macuse && \
+		tar -czf $(DIST)/macuse_$(APP_VERSION)_linux_$$arch.tar.gz -C $(DIST)/linux-$$arch macuse LICENSE || exit 1; \
 	done
-	cd $(DIST) && shasum -a 256 mac-use_$(VERSION)_* > checksums.txt
+	cd $(DIST) && shasum -a 256 macuse_$(APP_VERSION)_* > checksums.txt
 
 clean: ## Remove build output
 	rm -rf bin $(DIST) coverage.out

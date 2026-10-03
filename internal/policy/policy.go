@@ -3,11 +3,11 @@ package policy
 import (
 	"strings"
 
-	"github.com/radutopala/mac-use/internal/buildinfo"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/buildinfo"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
-// hardDenyList are apps whose control would hand an agent a shell, mac-use
+// hardDenyList are apps whose control would hand an agent a shell, macuse
 // itself, system configuration, or stored secrets.
 var hardDenyList = []string{
 	// Terminals: controlling one is running arbitrary commands.
@@ -19,7 +19,7 @@ var hardDenyList = []string{
 	"io.alacritty",
 	"net.kovidgoyal.kitty",
 	"org.alacritty", // the id Alacritty's release builds ship with
-	// mac-use itself: an agent could approve its own requests.
+	// macuse itself: an agent could approve its own requests.
 	buildinfo.BundleID,
 	// System Settings: privacy grants, accounts, security.
 	"com.apple.systempreferences",
@@ -36,7 +36,7 @@ var hardDenyList = []string{
 }
 
 // HardDenyList are bundle ids agents may never control: terminals (and so a
-// shell), mac-use itself, System Settings, the keychain, password managers, and
+// shell), macuse itself, System Settings, the keychain, password managers, and
 // scripting tools. The returned slice is a copy.
 func HardDenyList() []string {
 	return append([]string(nil), hardDenyList...)

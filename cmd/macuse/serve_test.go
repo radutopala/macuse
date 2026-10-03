@@ -17,12 +17,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/radutopala/mac-use/internal/auth"
-	"github.com/radutopala/mac-use/internal/core"
-	"github.com/radutopala/mac-use/internal/launchagent"
-	"github.com/radutopala/mac-use/internal/native"
-	"github.com/radutopala/mac-use/internal/proto"
-	"github.com/radutopala/mac-use/internal/server"
+	"github.com/radutopala/macuse/internal/auth"
+	"github.com/radutopala/macuse/internal/core"
+	"github.com/radutopala/macuse/internal/launchagent"
+	"github.com/radutopala/macuse/internal/native"
+	"github.com/radutopala/macuse/internal/proto"
+	"github.com/radutopala/macuse/internal/server"
 )
 
 // mockRunner is the native layer. The core.Platform methods a test doesn't
@@ -142,12 +142,12 @@ func (s *AppSuite) TestServe() {
 	second.listen = func(string, string) (net.Listener, error) { return nil, errors.New("address in use") }
 	other := s.T().TempDir()
 	second.home = func() (string, error) { return other, nil }
-	s.paths.Dir = filepath.Join(other, "Library", "Application Support", "mac-use")
+	s.paths.Dir = filepath.Join(other, "Library", "Application Support", "macuse")
 	s.paths.Config = filepath.Join(s.paths.Dir, "config.json")
 	s.writeConfig(page.Host)
 	s.stdout.Reset()
 	require.Equal(s.T(), 0, second.run(context.Background(), []string{"serve"}))
-	require.Equal(s.T(), "mac-use is already running at "+page.Host+"\n", s.stdout.String())
+	require.Equal(s.T(), "macuse is already running at "+page.Host+"\n", s.stdout.String())
 
 	res = s.request(http.MethodPost, base+"/ui/api/quit", "", key...)
 	require.Equal(s.T(), http.StatusNoContent, res.StatusCode)
@@ -298,7 +298,7 @@ func (s *AppSuite) TestRunning() {
 		addr string
 		want bool
 	}{
-		{"mac-use", s.serverAddr(handler(http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"x"}}`)), true},
+		{"macuse", s.serverAddr(handler(http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"x"}}`)), true},
 		{"other 401", s.serverAddr(handler(http.StatusUnauthorized, `{"error":{"code":"nope"}}`)), false},
 		{"no error", s.serverAddr(handler(http.StatusUnauthorized, `{}`)), false},
 		{"not json", s.serverAddr(handler(http.StatusUnauthorized, `nope`)), false},

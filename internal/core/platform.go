@@ -4,7 +4,7 @@ import (
 	"image"
 	"time"
 
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 // Button is a mouse button.

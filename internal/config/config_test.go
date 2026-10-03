@@ -26,12 +26,12 @@ func (s *ConfigSuite) SetupTest() {
 func (s *ConfigSuite) TestNewPaths() {
 	p := NewPaths("/Users/u")
 	require.Equal(s.T(), Paths{
-		Dir:         "/Users/u/Library/Application Support/mac-use",
-		Config:      "/Users/u/Library/Application Support/mac-use/config.json",
-		Token:       "/Users/u/Library/Application Support/mac-use/token",
-		Approvals:   "/Users/u/Library/Application Support/mac-use/approvals.json",
-		Audit:       "/Users/u/Library/Logs/mac-use/audit.jsonl",
-		Log:         "/Users/u/Library/Logs/mac-use/mac-use.log",
+		Dir:         "/Users/u/Library/Application Support/macuse",
+		Config:      "/Users/u/Library/Application Support/macuse/config.json",
+		Token:       "/Users/u/Library/Application Support/macuse/token",
+		Approvals:   "/Users/u/Library/Application Support/macuse/approvals.json",
+		Audit:       "/Users/u/Library/Logs/macuse/audit.jsonl",
+		Log:         "/Users/u/Library/Logs/macuse/macuse.log",
 		LaunchAgent: "/Users/u/Library/LaunchAgents/io.github.radutopala.macuse.plist",
 	}, p)
 }

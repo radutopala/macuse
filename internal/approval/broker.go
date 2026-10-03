@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/proto"
 )
 
 // Answers to a request.

@@ -14,15 +14,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/radutopala/mac-use/internal/approval"
-	"github.com/radutopala/mac-use/internal/buildinfo"
-	"github.com/radutopala/mac-use/internal/config"
-	"github.com/radutopala/mac-use/internal/core"
-	"github.com/radutopala/mac-use/internal/launchagent"
-	"github.com/radutopala/mac-use/internal/native"
-	"github.com/radutopala/mac-use/internal/policy"
-	"github.com/radutopala/mac-use/internal/proto"
-	"github.com/radutopala/mac-use/internal/server"
+	"github.com/radutopala/macuse/internal/approval"
+	"github.com/radutopala/macuse/internal/clilink"
+	"github.com/radutopala/macuse/internal/config"
+	"github.com/radutopala/macuse/internal/core"
+	"github.com/radutopala/macuse/internal/launchagent"
+	"github.com/radutopala/macuse/internal/native"
+	"github.com/radutopala/macuse/internal/policy"
+	"github.com/radutopala/macuse/internal/proto"
+	"github.com/radutopala/macuse/internal/server"
 )
 
 func (a *app) serve(ctx context.Context) error {
@@ -60,7 +60,7 @@ func (a *app) serve(ctx context.Context) error {
 	ln, err := a.listen("tcp", cfg.Listen)
 	if err != nil {
 		if a.running(ctx, cfg.Listen) {
-			fmt.Fprintln(a.stdout, "mac-use is already running at", cfg.Listen)
+			fmt.Fprintln(a.stdout, "macuse is already running at", cfg.Listen)
 			return nil
 		}
 		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
@@ -73,6 +73,13 @@ func (a *app) serve(ctx context.Context) error {
 
 	ctx, quit := context.WithCancel(ctx)
 	defer quit()
+	bundle := bundlePath(agent.Exe)
+	rs := &restarter{a: a, bundle: bundle, quit: quit, logger: logger}
+	var updater server.Updater
+	if up := a.updater(bundle, rs.restart); up != nil {
+		updater = up
+		go up.Run(ctx)
+	}
 	m := &menu{runner: runner}
 	var srv *server.Server
 	notify := func() { m.update(srv.Summary()) }
@@ -84,12 +91,13 @@ func (a *app) serve(ctx context.Context) error {
 		Store:   store,
 		Policy:  policy.NewPolicy(cfg.DenyApps),
 		Audit:   server.NewAudit(auditFile, a.now),
-		Host:    host{agent: agent, quit: quit},
+		Host:    host{agent: agent, link: a.cliLink(ctx, bundle, agent.Exe), quit: quit},
+		Updater: updater,
 		Logger:  logger,
 		Now:     a.now,
 		Token:   token,
 		UIKey:   uiKey,
-		Version: buildinfo.Version,
+		Version: a.version,
 		Notify:  notify,
 	})
 	hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
@@ -119,9 +127,12 @@ func (a *app) serve(ctx context.Context) error {
 		}
 		<-served
 	}()
-	logger.Info("mac-use serving", "addr", ln.Addr().String(), "version", buildinfo.Version)
+	logger.Info("macuse serving", "addr", ln.Addr().String(), "version", a.version)
 	if err := runner.Run(runCtx); err != nil {
 		return err
+	}
+	if serveErr == nil && rs.failed {
+		return errRestart
 	}
 	return serveErr
 }
@@ -156,8 +167,8 @@ func uiURL(addr net.Addr, key string) string {
 	return "http://" + net.JoinHostPort(host, port) + "/ui?key=" + url.QueryEscape(key)
 }
 
-// running reports whether addr is already a mac-use API: it refuses an
-// unauthenticated status with mac-use's own error.
+// running reports whether addr is already a macuse API: it refuses an
+// unauthenticated status with macuse's own error.
 func (a *app) running(ctx context.Context, addr string) bool {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/v1/status", nil)
 	if err != nil {
@@ -199,10 +210,13 @@ func (m *menu) update(s server.Summary) {
 	m.pending = s.Pending
 }
 
-// host is what the popup controls: the login item and quitting.
+// host is what the popup controls: the login item, the CLI link and
+// quitting.
 type host struct {
 	agent launchagent.Agent
-	quit  func()
+	// link is nil outside the app.
+	link *clilink.Link
+	quit func()
 }
 
 func (h host) LoginItem() bool { return h.agent.Installed() }
@@ -213,5 +227,17 @@ func (h host) SetLoginItem(on bool) error {
 	}
 	return h.agent.Remove()
 }
+
+func (h host) CLI() string {
+	switch {
+	case h.link == nil:
+		return ""
+	case h.link.Installed():
+		return "installed"
+	}
+	return "missing"
+}
+
+func (h host) InstallCLI() error { return h.link.Install() }
 
 func (h host) Quit() { h.quit() }

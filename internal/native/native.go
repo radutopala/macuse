@@ -1,4 +1,4 @@
-// Package native is the OS layer of mac-use. On macOS it binds
+// Package native is the OS layer of macuse. On macOS it binds
 // Accessibility, Quartz events and CoreGraphics through purego, without cgo;
 // other platforms are not supported yet.
 package native
@@ -8,11 +8,11 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/radutopala/mac-use/internal/core"
+	"github.com/radutopala/macuse/internal/core"
 )
 
 // ErrUnsupported is returned off macOS.
-var ErrUnsupported = errors.New("mac-use only runs on macOS")
+var ErrUnsupported = errors.New("macuse only runs on macOS")
 
 // Runner is a Platform whose calls are served by Run on the main thread.
 type Runner interface {
@@ -21,7 +21,7 @@ type Runner interface {
 	MenuBar
 }
 
-// MenuBar is mac-use's menu bar item, whose popover shows the page at the
+// MenuBar is macuse's menu bar item, whose popover shows the page at the
 // URL StartMenuBar loads.
 type MenuBar interface {
 	StartMenuBar(pageURL string) error

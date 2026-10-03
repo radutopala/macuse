@@ -5,14 +5,15 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/radutopala/mac-use/internal/approval"
-	"github.com/radutopala/mac-use/internal/auth"
-	"github.com/radutopala/mac-use/internal/proto"
+	"github.com/radutopala/macuse/internal/approval"
+	"github.com/radutopala/macuse/internal/auth"
+	"github.com/radutopala/macuse/internal/proto"
+	"github.com/radutopala/macuse/internal/update"
 )
 
 // HeaderUIKey carries the popup's key on its API calls. The page itself is
 // loaded with the key in the query, which only the app knows.
-const HeaderUIKey = "X-Mac-Use-UI-Key"
+const HeaderUIKey = "X-Macuse-UI-Key"
 
 //go:embed ui/index.html
 var indexHTML []byte
@@ -27,7 +28,7 @@ func (s *Server) uiAuth(next http.Handler) http.Handler {
 			key = r.URL.Query().Get("key")
 		}
 		if s.UIKey == "" || !auth.Equal(key, s.UIKey) {
-			writeError(w, fail(proto.CodeUnauthorized, "the popup is served only to the mac-use app"))
+			writeError(w, fail(proto.CodeUnauthorized, "the popup is served only to the macuse app"))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -43,6 +44,9 @@ func (s *Server) registerUI(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /ui/api/approvals", s.handleForget)
 	mux.HandleFunc("POST /ui/api/permissions", s.handleRequestPermissions)
 	mux.HandleFunc("POST /ui/api/login-item", s.handleLoginItem)
+	mux.HandleFunc("POST /ui/api/cli", s.handleInstallCLI)
+	mux.HandleFunc("POST /ui/api/update/check", s.handleCheckUpdate)
+	mux.HandleFunc("POST /ui/api/update/install", s.handleInstallUpdate)
 	mux.HandleFunc("POST /ui/api/quit", s.handleQuit)
 }
 
@@ -62,12 +66,19 @@ type UIState struct {
 	Activity    []Activity         `json:"activity"`
 	Permissions *proto.Permissions `json:"permissions,omitempty"`
 	LoginItem   bool               `json:"login_item"`
+	CLI         string             `json:"cli,omitempty"`
+	Update      *update.Status     `json:"update,omitempty"`
 }
 
 func (s *Server) handleUIState(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	paused := s.paused
 	s.mu.Unlock()
+	var up *update.Status
+	if s.Updater != nil {
+		st := s.Updater.Status()
+		up = &st
+	}
 	writeJSON(w, http.StatusOK, UIState{
 		Version:     s.Version,
 		Paused:      paused,
@@ -76,6 +87,8 @@ func (s *Server) handleUIState(w http.ResponseWriter, r *http.Request) {
 		Activity:    s.Activities(),
 		Permissions: s.permissions(r.Context()),
 		LoginItem:   s.Host.LoginItem(),
+		CLI:         s.Host.CLI(),
+		Update:      up,
 	})
 }
 
@@ -144,7 +157,7 @@ func (s *Server) handleForget(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleRequestPermissions asks macOS for the grants mac-use lacks, which
+// handleRequestPermissions asks macOS for the grants macuse lacks, which
 // shows the system prompts or opens their Settings panes.
 func (s *Server) handleRequestPermissions(w http.ResponseWriter, r *http.Request) {
 	var p proto.Permissions
@@ -166,6 +179,45 @@ func (s *Server) handleLoginItem(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.Host.SetLoginItem(req.Enabled); err != nil {
 		writeError(w, errors.New("changing the login item failed: "+err.Error()))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleInstallCLI(w http.ResponseWriter, _ *http.Request) {
+	if s.Host.CLI() == "" {
+		writeError(w, errNotTheApp)
+		return
+	}
+	if err := s.Host.InstallCLI(); err != nil {
+		writeError(w, errors.New("installing the CLI failed: "+err.Error()))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+var (
+	errNotTheApp = fail(proto.CodeUnsupported, "only macuse.app can do this")
+	errNoUpdater = fail(proto.CodeUnsupported, "this build of macuse doesn't update itself")
+)
+
+func (s *Server) handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.Updater == nil {
+		writeError(w, errNoUpdater)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.Updater.CheckNow(r.Context()))
+}
+
+// handleInstallUpdate installs the update and restarts, so the answer is
+// the last thing this version says.
+func (s *Server) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.Updater == nil {
+		writeError(w, errNoUpdater)
+		return
+	}
+	if err := s.Updater.InstallNow(r.Context()); err != nil {
+		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

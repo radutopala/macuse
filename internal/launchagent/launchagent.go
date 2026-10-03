@@ -1,4 +1,4 @@
-// Package launchagent makes mac-use a per-user LaunchAgent, so it starts at
+// Package launchagent makes macuse a per-user LaunchAgent, so it starts at
 // login and launchd restarts it if it crashes.
 package launchagent
 
@@ -13,7 +13,7 @@ import (
 	"strconv"
 )
 
-// Agent is mac-use's LaunchAgent.
+// Agent is macuse's LaunchAgent.
 type Agent struct {
 	// Path is the plist, ~/Library/LaunchAgents/<Label>.plist.
 	Path  string
@@ -27,7 +27,7 @@ type Agent struct {
 	Run func(name string, args ...string) error
 }
 
-// Plist is the agent's property list. KeepAlive restarts mac-use after a
+// Plist is the agent's property list. KeepAlive restarts macuse after a
 // crash but not after the user quits it (exit 0); Aqua limits it to a GUI
 // login, where it can draw the menu bar.
 func (a Agent) Plist() []byte {
@@ -76,7 +76,7 @@ func escape(b *bytes.Buffer, s string) {
 	_ = xml.EscapeText(b, []byte(s)) // a bytes.Buffer never fails
 }
 
-// Installed reports whether the plist exists, so mac-use opens at login.
+// Installed reports whether the plist exists, so macuse opens at login.
 func (a Agent) Installed() bool {
 	_, err := os.Stat(a.Path)
 	return err == nil
