@@ -19,6 +19,7 @@ cask "macuse" do
             quit:      "io.github.radutopala.macuse"
 
   zap trash: [
+    "~/.macuse",
     "~/Library/Application Support/macuse",
     "~/Library/Logs/macuse",
   ]

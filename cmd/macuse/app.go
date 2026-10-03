@@ -20,6 +20,7 @@ import (
 	"github.com/radutopala/macuse/internal/buildinfo"
 	"github.com/radutopala/macuse/internal/clilink"
 	"github.com/radutopala/macuse/internal/config"
+	"github.com/radutopala/macuse/internal/fsmigrate"
 	"github.com/radutopala/macuse/internal/launchagent"
 	"github.com/radutopala/macuse/internal/native"
 	"github.com/radutopala/macuse/internal/update"
@@ -160,7 +161,11 @@ func (a *app) paths() (config.Paths, error) {
 	if err != nil {
 		return config.Paths{}, err
 	}
-	return config.NewPaths(home), nil
+	p := config.NewPaths(home)
+	if err := fsmigrate.Run(fsmigrate.Ctx{Home: home, Paths: p}); err != nil {
+		return config.Paths{}, err
+	}
+	return p, nil
 }
 
 func (a *app) printToken() error {

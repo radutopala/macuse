@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -26,11 +27,15 @@ import (
 )
 
 func (a *app) serve(ctx context.Context) error {
-	logger := slog.New(slog.NewTextHandler(a.stderr, nil))
 	p, err := a.paths()
 	if err != nil {
 		return err
 	}
+	logger, closeLog, err := a.serveLogger(p.Log)
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	cfg, err := config.Load(p.Config)
 	if err != nil {
 		return err
@@ -183,6 +188,30 @@ func (a *app) running(ctx context.Context, addr string) bool {
 	return res.StatusCode == http.StatusUnauthorized &&
 		json.NewDecoder(res.Body).Decode(&body) == nil &&
 		body.Error != nil && body.Error.Code == proto.CodeUnauthorized
+}
+
+// serveLogger logs to stderr and the log file, unless stderr is the log
+// file already, as the LaunchAgent makes it.
+func (a *app) serveLogger(path string) (*slog.Logger, func(), error) {
+	f, err := openAppend(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	if sameFile(a.stderr, f) {
+		_ = f.Close()
+		return slog.New(slog.NewTextHandler(a.stderr, nil)), func() {}, nil
+	}
+	return slog.New(slog.NewTextHandler(io.MultiWriter(a.stderr, f), nil)), func() { _ = f.Close() }, nil
+}
+
+func sameFile(w io.Writer, f *os.File) bool {
+	wf, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	a, errA := wf.Stat()
+	b, errB := f.Stat()
+	return errA == nil && errB == nil && os.SameFile(a, b)
 }
 
 func openAppend(path string) (*os.File, error) {

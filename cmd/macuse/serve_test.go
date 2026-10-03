@@ -258,6 +258,9 @@ func (s *AppSuite) TestServeFailures() {
 		{"approvals", func() {
 			require.NoError(s.T(), os.MkdirAll(s.paths.Approvals, 0o700))
 		}, "approvals"},
+		{"log file", func() {
+			require.NoError(s.T(), os.MkdirAll(s.paths.Log, 0o700))
+		}, "is a directory"},
 		{"audit dir", func() {
 			require.NoError(s.T(), os.MkdirAll(filepath.Dir(filepath.Dir(s.paths.Audit)), 0o700))
 			require.NoError(s.T(), os.WriteFile(filepath.Dir(s.paths.Audit), nil, 0o600))

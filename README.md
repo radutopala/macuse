@@ -135,13 +135,13 @@ password managers, System Settings, Automator, Script Editor, Shortcuts, and
 macuse itself. Add more in `deny_apps`.
 
 Each allowed or refused call is appended to
-`~/Library/Logs/macuse/audit.jsonl`. Each line records the client, the
+`~/.macuse/logs/audit.jsonl`. Each line records the client, the
 session, the app and the action. For typing it records how many characters
 were typed, not the text itself.
 
 ## Configuration
 
-`~/Library/Application Support/macuse/config.json` is optional:
+`~/.macuse/config.json` is optional:
 
 ```json
 {
@@ -152,7 +152,9 @@ were typed, not the text itself.
 ```
 
 The same folder holds `token` (the API token, mode 0600) and
-`approvals.json`. Delete `token` and restart macuse to rotate the token.
+`approvals.json`, and `logs/macuse.log` holds the app's log. Delete `token`
+and restart macuse to rotate the token. Releases up to 2026.10.3 kept these
+files in `~/Library`; macuse moves them the first time it runs.
 
 ## Security
 

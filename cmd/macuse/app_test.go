@@ -20,6 +20,7 @@ import (
 	"github.com/radutopala/macuse/internal/auth"
 	"github.com/radutopala/macuse/internal/client"
 	"github.com/radutopala/macuse/internal/config"
+	"github.com/radutopala/macuse/internal/fsmigrate"
 )
 
 // failReader fails every read; okFirst lets the first n bytes through.
@@ -68,6 +69,13 @@ func (s *AppSuite) SetupTest() {
 		s.commands = append(s.commands, append([]string{name}, args...))
 		return s.fail[args[0]]
 	}
+}
+
+func (s *AppSuite) TestPathsMigrationFails() {
+	require.NoError(s.T(), os.MkdirAll(s.paths.Dir, 0o700))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(s.paths.Dir, "fs_migrations"), []byte("x"), 0o600))
+	require.Equal(s.T(), 1, s.run("token"))
+	require.Contains(s.T(), s.stderr.String(), "fs_migrations")
 }
 
 func (s *AppSuite) run(args ...string) int {
@@ -183,6 +191,8 @@ func (s *AppSuite) TestServiceFailures() {
 		{"executable", []string{"uninstall"}, func() { s.app.executable = func() (string, error) { return "", errors.New("no exe") } }, "no exe"},
 		{"bootstrap", []string{"install"}, func() { s.fail["bootstrap"] = errors.New("denied") }, "launchctl bootstrap: denied"},
 		{"remove", []string{"uninstall"}, func() {
+			// Migrated already, which would read the plist.
+			require.NoError(s.T(), fsmigrate.Run(fsmigrate.Ctx{Home: s.home, Paths: s.paths}))
 			require.NoError(s.T(), os.MkdirAll(filepath.Join(s.paths.LaunchAgent, "x"), 0o755))
 		}, "directory not empty"},
 	}

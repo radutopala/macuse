@@ -53,8 +53,12 @@ type restarter struct {
 	failed bool
 }
 
+// underLaunchd reports whether launchd runs this process as the login
+// service.
+func (a *app) underLaunchd() bool { return a.getenv("XPC_SERVICE_NAME") == buildinfo.BundleID }
+
 func (r *restarter) restart() {
-	if r.a.getenv("XPC_SERVICE_NAME") == buildinfo.BundleID {
+	if r.a.underLaunchd() {
 		r.failed = true
 	} else if err := r.a.start("/bin/sh", "-c", relaunch, "sh", strconv.Itoa(r.a.pid()), r.bundle); err != nil {
 		r.logger.Error("reopening the app after the update", "error", err)

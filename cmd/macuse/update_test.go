@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -129,10 +130,18 @@ func (s *AppSuite) TestServeUpdatesUnderLaunchd() {
 		}
 		return ""
 	}
+	// launchd points stderr at the log.
+	stderr, err := openAppend(s.paths.Log)
+	require.NoError(s.T(), err)
+	defer func() { _ = stderr.Close() }()
+	s.app.stderr = stderr
 	sv := s.updateAndInstall(bundle)
 	require.Equal(s.T(), 1, <-sv.done, "launchd restarts an agent that fails")
-	require.Contains(s.T(), s.stderr.String(), "macuse: restarting into the update")
 	require.Empty(s.T(), *starts)
+	log, err := os.ReadFile(s.paths.Log)
+	require.NoError(s.T(), err)
+	require.Contains(s.T(), string(log), "macuse: restarting into the update")
+	require.Equal(s.T(), 1, strings.Count(string(log), "macuse serving"), "logged once, not to stderr and the log")
 }
 
 func (s *AppSuite) TestServeUpdatesAndReopens() {
@@ -140,6 +149,10 @@ func (s *AppSuite) TestServeUpdatesAndReopens() {
 	sv := s.updateAndInstall(bundle)
 	require.Equal(s.T(), 0, <-sv.done)
 	require.Equal(s.T(), [][]string{{"/bin/sh", "-c", relaunch, "sh", "4242", bundle}}, *starts)
+	log, err := os.ReadFile(s.paths.Log)
+	require.NoError(s.T(), err)
+	require.Contains(s.T(), string(log), "macuse serving", "an app opened directly logs to the file too")
+	require.Contains(s.T(), s.stderr.String(), "macuse serving")
 }
 
 func (s *AppSuite) TestServeReopenFails() {

@@ -22,25 +22,25 @@ const DefaultApprovalTimeout = 2 * time.Minute
 
 // Paths are the files macuse keeps.
 type Paths struct {
-	Dir         string // ~/Library/Application Support/macuse
+	Dir         string // ~/.macuse
 	Config      string // config.json
 	Token       string // the API token, 0600
 	Approvals   string // approvals.json
-	Audit       string // ~/Library/Logs/macuse/audit.jsonl
-	Log         string // ~/Library/Logs/macuse/macuse.log, the LaunchAgent's output
+	Audit       string // logs/audit.jsonl
+	Log         string // logs/macuse.log
 	LaunchAgent string // ~/Library/LaunchAgents/<bundle id>.plist
 }
 
 // NewPaths returns the paths under home.
 func NewPaths(home string) Paths {
-	dir := filepath.Join(home, "Library", "Application Support", "macuse")
+	dir := filepath.Join(home, ".macuse")
 	return Paths{
 		Dir:         dir,
 		Config:      filepath.Join(dir, "config.json"),
 		Token:       filepath.Join(dir, "token"),
 		Approvals:   filepath.Join(dir, "approvals.json"),
-		Audit:       filepath.Join(home, "Library", "Logs", "macuse", "audit.jsonl"),
-		Log:         filepath.Join(home, "Library", "Logs", "macuse", "macuse.log"),
+		Audit:       filepath.Join(dir, "logs", "audit.jsonl"),
+		Log:         filepath.Join(dir, "logs", "macuse.log"),
 		LaunchAgent: filepath.Join(home, "Library", "LaunchAgents", buildinfo.BundleID+".plist"),
 	}
 }
