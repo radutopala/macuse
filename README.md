@@ -31,9 +31,9 @@ brew install --cask radutopala/tap/macuse
 ```
 
 The cask installs `macuse.app` and links its binary as the `macuse` CLI.
-Or download `macuse_<version>_macos.zip` from the
-[releases](https://github.com/radutopala/macuse/releases), unzip it, and
-move `macuse.app` to `/Applications`. The app is signed and notarized, and
+Or download `macuse_<version>_macos.dmg` from the
+[releases](https://github.com/radutopala/macuse/releases), open it, and
+drag `macuse.app` to `/Applications`. The app is signed and notarized, and
 runs on Apple silicon and Intel Macs.
 
 Then:

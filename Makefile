@@ -1,4 +1,4 @@
-.PHONY: help build install uninstall restart test coverage-check _coverage-check-run lint lint-darwin app sign notarize dist clean
+.PHONY: help build install uninstall restart test coverage-check _coverage-check-run lint lint-darwin app sign notarize dmg dist clean
 .DEFAULT_GOAL := help
 
 help: ## Show available targets
@@ -89,7 +89,22 @@ notarize: sign ## Notarize and staple the app (needs APPLE_ID, APPLE_APP_SPECIFI
 	xcrun stapler staple $(APP)
 	spctl --assess --type execute --verbose $(APP)
 
-dist: notarize ## Notarized app zip plus Linux MCP client binaries, with checksums
+# The disk image opens on the app beside a link to /Applications.
+DMG := $(DIST)/macuse_$(APP_VERSION)_macos.dmg
+
+dmg: notarize ## Signed, notarized and stapled disk image of the app
+	rm -rf $(DIST)/dmg $(DMG)
+	mkdir -p $(DIST)/dmg
+	ditto $(APP) $(DIST)/dmg/macuse.app
+	ln -s /Applications $(DIST)/dmg/Applications
+	hdiutil create -volname macuse -srcfolder $(DIST)/dmg -fs HFS+ -format UDZO -ov $(DMG)
+	rm -rf $(DIST)/dmg
+	codesign --force --timestamp --sign "$(SIGN_IDENTITY)" $(DMG)
+	xcrun notarytool submit $(DMG) --apple-id "$$APPLE_ID" --password "$$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$$APPLE_TEAM_ID" --wait
+	xcrun stapler staple $(DMG)
+	spctl --assess --type open --context context:primary-signature --verbose $(DMG)
+
+dist: dmg ## Notarized app zip and disk image, Linux MCP client binaries, and checksums
 	cd $(DIST) && ditto -c -k --keepParent macuse.app macuse_$(APP_VERSION)_macos.zip
 	for arch in amd64 arm64; do \
 		mkdir -p $(DIST)/linux-$$arch && cp LICENSE $(DIST)/linux-$$arch/ && \
