@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27"
+      - name: Run tests and enforce 100% coverage
+        run: make coverage-check
+
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27"
+      - uses: golangci/golangci-lint-action@v9
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: arm64
+
+  # The native layer only builds and runs on a Mac.
+  test-macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27"
+      - name: Vet and test
+        env:
+          CGO_ENABLED: 0
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
+      - name: Build the app
+        run: make app
+
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27"
+      - name: Build the MCP client
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: go build -o mac-use-linux-${{ matrix.goarch }} ./cmd/mac-use
