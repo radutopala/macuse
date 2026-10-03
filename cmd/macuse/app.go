@@ -198,6 +198,7 @@ func (a *app) agent(p config.Paths) (launchagent.Agent, error) {
 		Log:   p.Log,
 		UID:   a.uid(),
 		Run:   a.command,
+		Sleep: time.Sleep,
 	}, nil
 }
 

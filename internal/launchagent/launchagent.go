@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 // Agent is macuse's LaunchAgent.
@@ -25,6 +26,8 @@ type Agent struct {
 	UID int
 	// Run runs a command (launchctl), returning its error with its output.
 	Run func(name string, args ...string) error
+	// Sleep pauses while a booted-out agent unloads.
+	Sleep func(time.Duration)
 }
 
 // Plist is the agent's property list. KeepAlive restarts macuse after a
@@ -112,10 +115,29 @@ func (a Agent) Install() error {
 	}
 	// Not loaded yet is the usual case, so this one may fail.
 	_ = a.Run("launchctl", "bootout", a.domain()+"/"+a.Label)
+	a.waitUnloaded()
 	if err := a.Run("launchctl", "bootstrap", a.domain(), a.Path); err != nil {
 		return fmt.Errorf("launchctl bootstrap: %w", err)
 	}
 	return nil
+}
+
+// How long Install waits for a booted-out agent to unload.
+const (
+	unloadWait = 5 * time.Second
+	unloadPoll = 100 * time.Millisecond
+)
+
+// waitUnloaded waits until launchd no longer knows the agent: bootout
+// returns while it is still tearing the job down, and a bootstrap then
+// fails with an input/output error. Past unloadWait, bootstrap reports it.
+func (a Agent) waitUnloaded() {
+	for waited := time.Duration(0); waited < unloadWait; waited += unloadPoll {
+		if a.Run("launchctl", "print", a.domain()+"/"+a.Label) != nil {
+			return
+		}
+		a.Sleep(unloadPoll)
+	}
 }
 
 // Uninstall stops the agent and deletes the plist.

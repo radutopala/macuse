@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -15,6 +16,7 @@ type AgentSuite struct {
 	dir   string
 	calls [][]string
 	fail  map[string]error
+	slept []time.Duration
 	agent Agent
 }
 
@@ -25,7 +27,8 @@ func TestAgentSuite(t *testing.T) {
 func (s *AgentSuite) SetupTest() {
 	s.dir = s.T().TempDir()
 	s.calls = nil
-	s.fail = map[string]error{}
+	s.fail = map[string]error{"print": errors.New("not loaded")}
+	s.slept = nil
 	s.agent = Agent{
 		Path:  filepath.Join(s.dir, "LaunchAgents", "io.example.app.plist"),
 		Label: "io.example.app",
@@ -36,6 +39,7 @@ func (s *AgentSuite) SetupTest() {
 			s.calls = append(s.calls, append([]string{name}, args...))
 			return s.fail[args[0]]
 		},
+		Sleep: func(d time.Duration) { s.slept = append(s.slept, d) },
 	}
 }
 
@@ -101,8 +105,44 @@ func (s *AgentSuite) TestInstall() {
 	require.True(s.T(), s.agent.Installed())
 	require.Equal(s.T(), [][]string{
 		{"launchctl", "bootout", "gui/501/io.example.app"},
+		{"launchctl", "print", "gui/501/io.example.app"},
 		{"launchctl", "bootstrap", "gui/501", s.agent.Path},
 	}, s.calls)
+	require.Empty(s.T(), s.slept)
+}
+
+func (s *AgentSuite) TestInstallWaitsForUnload() {
+	tests := []struct {
+		name       string
+		loadedFor  int
+		wantPrints int
+	}{
+		{"unloads after two polls", 2, 3},
+		{"never unloads", 1000, int(unloadWait / unloadPoll)},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.SetupTest()
+			prints := 0
+			run := s.agent.Run
+			s.agent.Run = func(name string, args ...string) error {
+				if args[0] == "print" {
+					prints++
+					if prints <= tt.loadedFor {
+						return nil
+					}
+				}
+				return run(name, args...)
+			}
+			require.NoError(s.T(), s.agent.Install())
+			require.Equal(s.T(), tt.wantPrints, prints)
+			require.Len(s.T(), s.slept, min(tt.loadedFor, tt.wantPrints))
+			for _, d := range s.slept {
+				require.Equal(s.T(), unloadPoll, d)
+			}
+			require.Equal(s.T(), []string{"launchctl", "bootstrap", "gui/501", s.agent.Path}, s.calls[len(s.calls)-1])
+		})
+	}
 }
 
 func (s *AgentSuite) TestInstallBootstrapFails() {

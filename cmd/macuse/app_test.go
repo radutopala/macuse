@@ -56,7 +56,8 @@ func (s *AppSuite) SetupTest() {
 	s.stdout = &bytes.Buffer{}
 	s.stderr = &bytes.Buffer{}
 	s.commands = nil
-	s.fail = map[string]error{}
+	// launchctl print fails for an agent that isn't loaded.
+	s.fail = map[string]error{"print": errors.New("not loaded")}
 	s.app = newApp()
 	s.app.stdout = s.stdout
 	s.app.stderr = s.stderr
@@ -157,6 +158,7 @@ func (s *AppSuite) TestServiceInstallUninstall() {
 	require.Contains(s.T(), string(plist), "<string>"+s.paths.Log+"</string>")
 	require.Equal(s.T(), [][]string{
 		{"launchctl", "bootout", "gui/501/io.github.radutopala.macuse"},
+		{"launchctl", "print", "gui/501/io.github.radutopala.macuse"},
 		{"launchctl", "bootstrap", "gui/501", s.paths.LaunchAgent},
 	}, s.commands)
 
