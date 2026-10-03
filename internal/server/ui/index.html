@@ -78,7 +78,8 @@ footer label { flex: 1; display: flex; gap: 6px; align-items: center; }
 <footer>
   <label><input type="checkbox" id="login"> Open at login</label>
   <button class="link" id="cli" hidden>Install CLI</button>
-  <button class="link" id="version" title="Check for updates"></button>
+  <span id="version"></span>
+  <button class="link" id="check">Check for updates</button>
   <button class="link" id="quit">Quit</button>
 </footer>
 <script>
@@ -142,74 +143,83 @@ function render() {
   document.getElementById("login").checked = st.login_item;
   document.getElementById("cli").hidden = st.cli !== "missing";
 
-  const update = document.getElementById("update");
-  update.replaceChildren();
   const up = st.update;
-  if (up && up.available) {
+  fill("update", up, () => {
+    if (!up || !up.available) return [];
     const install = el("button", { class: "primary", onclick: () => {
       install.disabled = true;
       install.textContent = "Installing…";
-      api("POST", "/ui/api/update/install").catch(err => { say(err.message); refresh(); });
+      api("POST", "/ui/api/update/install").catch(err => { say(err.message); delete shown.update; refresh(); });
     } }, up.installing ? "Installing…" : "Install and restart");
     install.disabled = !!up.installing;
-    update.append(el("div", { class: "card request row" },
+    return [el("div", { class: "card request row" },
       el("div", { class: "grow" },
         el("div", { class: "title" }, "macuse " + up.latest + " is available"),
         el("div", { class: "sub" }, up.error || "You have " + up.current + ".")),
-      install));
-  }
+      install)];
+  });
 
-  const perms = document.getElementById("perms");
-  perms.replaceChildren();
   const p = st.permissions;
-  if (p && (!p.accessibility || !p.screen_recording)) {
+  fill("perms", p, () => {
+    if (!p || (p.accessibility && p.screen_recording)) return [];
     const missing = [!p.accessibility && "Accessibility", !p.screen_recording && "Screen Recording"].filter(Boolean);
-    perms.append(el("div", { class: "card warn row" },
+    return [el("div", { class: "card warn row" },
       el("div", { class: "grow" }, "macuse needs " + missing.join(" and ") + " access."),
-      el("button", { onclick: () => act(api("POST", "/ui/api/permissions")) }, "Grant")));
-  }
+      el("button", { onclick: () => act(api("POST", "/ui/api/permissions")) }, "Grant"))];
+  });
 
-  const pending = document.getElementById("pending");
-  pending.replaceChildren();
-  if (!st.pending.length) pending.append(el("div", { class: "empty" }, "No requests waiting."));
-  for (const r of st.pending) {
-    const answer = a => () => act(api("POST", "/ui/api/answer", { id: r.id, answer: a }));
-    pending.append(el("div", { class: "card request" },
-      el("div", { class: "title" }, r.client + " wants to control " + r.app.name),
-      el("div", { class: "sub" }, r.app.bundle_id + (r.app.team_id ? " · team " + r.app.team_id : "") +
-        " · " + r.action + " · session " + r.session),
-      el("div", { class: "buttons" },
-        el("button", { onclick: answer("deny") }, "Deny"),
-        el("button", { onclick: answer("session") }, "This session"),
-        el("button", { class: "primary", onclick: answer("always") }, "Always"))));
-  }
+  fill("pending", st.pending, () => {
+    if (!st.pending.length) return [el("div", { class: "empty" }, "No requests waiting.")];
+    return st.pending.map(r => {
+      const answer = a => () => act(api("POST", "/ui/api/answer", { id: r.id, answer: a }));
+      return el("div", { class: "card request" },
+        el("div", { class: "title" }, r.client + " wants to control " + r.app.name),
+        el("div", { class: "sub" }, r.app.bundle_id + (r.app.team_id ? " · team " + r.app.team_id : "") +
+          " · " + r.action + " · session " + r.session),
+        el("div", { class: "buttons" },
+          el("button", { onclick: answer("deny") }, "Deny"),
+          el("button", { onclick: answer("session") }, "This session"),
+          el("button", { class: "primary", onclick: answer("always") }, "Always")));
+    });
+  });
 
-  const activity = document.getElementById("activity");
-  activity.replaceChildren();
-  if (!st.activity.length) activity.append(el("div", { class: "empty" }, "No agent has used the Mac yet."));
-  for (const a of st.activity) {
-    const row = el("div", { class: "card row" },
-      el("div", { class: "grow" },
-        el("div", { class: "title" }, a.client + " · " + a.app),
-        el("div", { class: "sub" }, a.action + " · " + ago(a.at) + (a.stopped ? " · stopped" : ""))));
-    if (!a.stopped) {
-      row.append(el("button", { class: "danger",
-        onclick: () => act(api("POST", "/ui/api/stop", { session: a.session })) }, "Stop"));
-    }
-    activity.append(row);
-  }
+  const activity = st.activity.map(a => ({ ...a, ago: ago(a.at) }));
+  fill("activity", activity, () => {
+    if (!activity.length) return [el("div", { class: "empty" }, "No agent has used the Mac yet.")];
+    return activity.map(a => {
+      const row = el("div", { class: "card row" },
+        el("div", { class: "grow" },
+          el("div", { class: "title" }, a.client + " · " + a.app),
+          el("div", { class: "sub" }, a.action + " · " + a.ago + (a.stopped ? " · stopped" : ""))));
+      if (!a.stopped) {
+        row.append(el("button", { class: "danger",
+          onclick: () => act(api("POST", "/ui/api/stop", { session: a.session })) }, "Stop"));
+      }
+      return row;
+    });
+  });
 
-  const approvals = document.getElementById("approvals");
-  approvals.replaceChildren();
-  if (!st.approvals.length) approvals.append(el("div", { class: "empty" }, "None yet."));
-  for (const s of st.approvals) {
-    const q = "?bundle_id=" + encodeURIComponent(s.bundle_id) + "&team_id=" + encodeURIComponent(s.team_id);
-    approvals.append(el("div", { class: "card row" },
-      el("div", { class: "grow" },
-        el("div", { class: "title" }, (s.name || s.bundle_id) + " · " + (s.decision === "allow" ? "allowed" : "denied")),
-        el("div", { class: "sub" }, s.bundle_id + (s.team_id ? " · team " + s.team_id : ""))),
-      el("button", { class: "link", onclick: () => act(api("DELETE", "/ui/api/approvals" + q)) }, "Forget")));
-  }
+  fill("approvals", st.approvals, () => {
+    if (!st.approvals.length) return [el("div", { class: "empty" }, "None yet.")];
+    return st.approvals.map(s => {
+      const q = "?bundle_id=" + encodeURIComponent(s.bundle_id) + "&team_id=" + encodeURIComponent(s.team_id);
+      return el("div", { class: "card row" },
+        el("div", { class: "grow" },
+          el("div", { class: "title" }, (s.name || s.bundle_id) + " · " + (s.decision === "allow" ? "allowed" : "denied")),
+          el("div", { class: "sub" }, s.bundle_id + (s.team_id ? " · team " + s.team_id : ""))),
+        el("button", { class: "link", onclick: () => act(api("DELETE", "/ui/api/approvals" + q)) }, "Forget"));
+    });
+  });
+}
+
+// fill rebuilds a list only when what it shows changed, so the refresh
+// never swaps a button out between the press and the release of a click.
+const shown = {};
+function fill(id, data, build) {
+  const sig = String(JSON.stringify(data));
+  if (shown[id] === sig) return;
+  shown[id] = sig;
+  document.getElementById(id).replaceChildren(...build());
 }
 
 async function refresh() {
@@ -224,13 +234,19 @@ document.getElementById("pause").addEventListener("click",
 document.getElementById("login").addEventListener("change",
   e => act(api("POST", "/ui/api/login-item", { enabled: e.target.checked })));
 document.getElementById("cli").addEventListener("click", () => act(api("POST", "/ui/api/cli")));
-document.getElementById("version").addEventListener("click", () => api("POST", "/ui/api/update/check")
-  .then(up => {
-    if (up.error) say(up.error);
-    else if (!up.available) say("macuse " + up.current + " is the latest version.");
-    refresh();
-  })
-  .catch(err => say(err.message)));
+const check = document.getElementById("check");
+check.addEventListener("click", () => {
+  check.disabled = true;
+  check.textContent = "Checking…";
+  api("POST", "/ui/api/update/check")
+    .then(up => {
+      if (up.error) say(up.error);
+      else if (!up.available) say("macuse " + up.current + " is the latest version.");
+      refresh();
+    })
+    .catch(err => say(err.message))
+    .finally(() => { check.disabled = false; check.textContent = "Check for updates"; });
+});
 document.getElementById("quit").addEventListener("click", () => api("POST", "/ui/api/quit").catch(() => {}));
 
 refresh();

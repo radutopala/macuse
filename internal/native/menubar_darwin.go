@@ -28,6 +28,11 @@ var popoverSize = nsSize{W: 360, H: 440}
 // process.
 const menuTargetClass = "MacuseMenuTarget"
 
+// webViewClass is a WKWebView that acts on the click that activates it.
+// A popover opened for a request can't activate the app without the
+// user, and a plain WKWebView would spend their first click on that.
+const webViewClass = "MacuseWebView"
+
 type menuBar struct {
 	app     objc.ID
 	button  objc.ID
@@ -50,18 +55,21 @@ func (p *Platform) startMenuBar(pageURL string) error {
 	app.Send(p.s("setActivationPolicy:"), int64(nsActivationPolicyAccessory))
 	app.Send(p.s("finishLaunching"))
 
-	cls := objc.GetClass(menuTargetClass)
-	if cls == 0 {
-		var err error
-		cls, err = objc.RegisterClass(menuTargetClass, objc.GetClass("NSObject"), nil, nil, []objc.MethodDef{{
-			Cmd: p.s("toggle:"),
-			Fn:  func(objc.ID, objc.SEL, objc.ID) { p.togglePopover() },
-		}})
-		if err != nil {
-			return fmt.Errorf("register %s: %w", menuTargetClass, err)
-		}
+	cls, err := registerClass(menuTargetClass, "NSObject", objc.MethodDef{
+		Cmd: p.s("toggle:"),
+		Fn:  func(objc.ID, objc.SEL, objc.ID) { p.togglePopover() },
+	})
+	if err != nil {
+		return err
 	}
 	target := objc.ID(cls).Send(p.s("new"))
+	webCls, err := registerClass(webViewClass, "WKWebView", objc.MethodDef{
+		Cmd: p.s("acceptsFirstMouse:"),
+		Fn:  func(objc.ID, objc.SEL, objc.ID) bool { return true },
+	})
+	if err != nil {
+		return err
+	}
 
 	bar := objc.ID(objc.GetClass("NSStatusBar")).Send(p.s("systemStatusBar"))
 	item := bar.Send(p.s("statusItemWithLength:"), float64(nsVariableStatusItemLength))
@@ -71,7 +79,7 @@ func (p *Platform) startMenuBar(pageURL string) error {
 	button.Send(p.s("setTarget:"), target)
 	button.Send(p.s("setAction:"), p.s("toggle:"))
 
-	web := objc.ID(objc.GetClass("WKWebView")).Send(p.s("alloc")).Send(p.s("initWithFrame:configuration:"),
+	web := objc.ID(webCls).Send(p.s("alloc")).Send(p.s("initWithFrame:configuration:"),
 		nsRect{W: popoverSize.W, H: popoverSize.H}, objc.ID(objc.GetClass("WKWebViewConfiguration")).Send(p.s("new")))
 	url := objc.ID(objc.GetClass("NSURL")).Send(p.s("URLWithString:"), objc.ID(p.attr(pageURL)))
 	if url == 0 {
@@ -89,6 +97,18 @@ func (p *Platform) startMenuBar(pageURL string) error {
 	p.menu = &menuBar{app: app, button: button, popover: popover}
 	p.updateMenuBar(MenuState{})
 	return nil
+}
+
+// registerClass registers name, once per process.
+func registerClass(name, super string, methods ...objc.MethodDef) (objc.Class, error) {
+	if cls := objc.GetClass(name); cls != 0 {
+		return cls, nil
+	}
+	cls, err := objc.RegisterClass(name, objc.GetClass(super), nil, nil, methods)
+	if err != nil {
+		return 0, fmt.Errorf("register %s: %w", name, err)
+	}
+	return cls, nil
 }
 
 // UpdateMenuBar redraws the icon for st.

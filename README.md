@@ -56,7 +56,7 @@ The app checks the latest release at start and every 30 minutes. When a
 newer one is out, the popover offers **Install and restart**. The app
 downloads the release, checks its SHA-256 against `checksums.txt`, checks
 that it is signed by the same Developer ID team, then replaces itself and
-starts again. Click the version in the popover to check now. Since the app
+starts again. Click **Check for updates** in the popover to check now. Since the app
 updates itself, `brew upgrade` skips it unless you pass `--greedy`.
 
 ## Connect an agent
