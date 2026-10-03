@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,7 +51,7 @@ func (s *ServiceSuite) call(method string, params any) proto.Response {
 	if params != nil {
 		raw, _ = json.Marshal(params)
 	}
-	return s.svc.Handle(proto.Request{ID: 7, Method: method, Params: raw})
+	return s.svc.Handle(context.Background(), proto.Request{ID: 7, Method: method, Params: raw})
 }
 
 func (s *ServiceSuite) ok(resp proto.Response, out any) {
@@ -115,9 +116,9 @@ func (s *ServiceSuite) TestUnknownMethod() {
 }
 
 func (s *ServiceSuite) TestParamErrors() {
-	for _, m := range []string{proto.MethodStartApp, proto.MethodGetState, proto.MethodAction} {
+	for _, m := range []string{proto.MethodStartApp, proto.MethodGetState, proto.MethodAction, proto.MethodBatch} {
 		s.fails(s.call(m, nil), proto.CodeInvalidParams, "missing params")
-		resp := s.svc.Handle(proto.Request{Method: m, Params: json.RawMessage(`[1]`)})
+		resp := s.svc.Handle(context.Background(), proto.Request{Method: m, Params: json.RawMessage(`[1]`)})
 		s.fails(resp, proto.CodeInvalidParams, "bad params")
 	}
 }
@@ -787,4 +788,153 @@ func (s *ServiceSuite) TestActionPlatformErrors() {
 			s.p.AssertExpectations(s.T())
 		})
 	}
+}
+
+// --- batch ---
+
+func (s *ServiceSuite) batch(ctx context.Context, actions ...proto.ActionParams) proto.Response {
+	raw, _ := json.Marshal(proto.BatchParams{BundleID: textEdit.BundleID, Actions: actions})
+	return s.svc.Handle(ctx, proto.Request{ID: 7, Method: proto.MethodBatch, Params: raw})
+}
+
+func drag(x, y, toX, toY float64) proto.ActionParams {
+	return proto.ActionParams{Action: proto.ActionDrag, X: ptr(x), Y: ptr(y), ToX: ptr(toX), ToY: ptr(toY)}
+}
+
+func (s *ServiceSuite) TestBatchBringsTheAppForwardOnce() {
+	s.read()
+	s.foreground(true)
+	s.p.On("Drag", Point{100, 50}, Point{200, 100}).Return(nil).Once()
+	s.p.On("Drag", Point{110, 55}, Point{150, 75}).Return(nil).Once()
+	s.p.On("Click", Point{110, 55}, ButtonLeft, 1).Return(nil).Once()
+	s.p.On("SetValue", uintptr(2), "new").Return(nil).Once()
+	var res proto.ActionResult
+	s.ok(s.batch(context.Background(),
+		drag(0, 0, 200, 100),
+		drag(20, 10, 100, 50),
+		proto.ActionParams{Action: proto.ActionClick, X: ptr(20), Y: ptr(10)},
+		proto.ActionParams{Action: proto.ActionSetValue, Index: 2, Value: "new"},
+	), &res)
+	require.Equal(s.T(), "4 of 4 actions done in TextEdit", res.Message)
+	require.Equal(s.T(), []time.Duration{settle}, s.sleeps)
+}
+
+func (s *ServiceSuite) TestBatchInTheBackgroundNeverComesForward() {
+	s.read()
+	s.p.On("SetValue", uintptr(2), "a").Return(nil).Once()
+	s.p.On("KeyTo", textEdit, Combo{Key: "a"}).Return(nil).Once()
+	var res proto.ActionResult
+	s.ok(s.batch(context.Background(),
+		proto.ActionParams{Action: proto.ActionSetValue, Index: 2, Value: "a"},
+		proto.ActionParams{Action: proto.ActionKey, Keys: "a"},
+	), &res)
+	require.Equal(s.T(), "2 of 2 actions done in TextEdit", res.Message)
+	require.Empty(s.T(), s.sleeps)
+	s.p.AssertNotCalled(s.T(), "Activate", mock.Anything)
+}
+
+func (s *ServiceSuite) TestBatchValidation() {
+	click := proto.ActionParams{Action: proto.ActionClick, Index: 3}
+	tests := []struct {
+		name    string
+		setup   func()
+		actions []proto.ActionParams
+		code    string
+		msg     string
+	}{
+		{name: "empty", code: proto.CodeInvalidParams, msg: "a batch takes 1 to 100 actions, got 0"},
+		{name: "too many", actions: make([]proto.ActionParams, proto.MaxBatch+1), code: proto.CodeInvalidParams, msg: "a batch takes 1 to 100 actions, got 101"},
+		{name: "not running", setup: func() {
+			s.p.On("ListApps").Return([]proto.App{finder}, nil)
+		}, actions: []proto.ActionParams{click}, code: proto.CodeAppNotFound, msg: "not running"},
+		{name: "bad action", setup: s.read, actions: []proto.ActionParams{click, {Action: proto.ActionClick, Index: 9}}, code: proto.CodeElementNotFound, msg: "action 2 (click), so nothing was sent: no element [9]"},
+	}
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+			if tc.setup != nil {
+				tc.setup()
+			}
+			s.fails(s.batch(context.Background(), tc.actions...), tc.code, tc.msg)
+			s.p.AssertNotCalled(s.T(), "Press", mock.Anything)
+			s.p.AssertExpectations(s.T())
+		})
+	}
+}
+
+func (s *ServiceSuite) TestBatchStopsAtTheFirstFailure() {
+	s.read()
+	s.foreground(true)
+	s.p.On("Drag", Point{100, 50}, Point{200, 100}).Return(nil).Once()
+	s.p.On("Click", Point{110, 55}, ButtonLeft, 1).Return(errors.New("platform failed")).Once()
+	s.fails(s.batch(context.Background(),
+		drag(0, 0, 200, 100),
+		proto.ActionParams{Action: proto.ActionClick, X: ptr(20), Y: ptr(10)},
+		drag(0, 0, 200, 100),
+	), proto.CodeInternal, "1 of 3 actions done in TextEdit; action 2 (click) failed: platform failed")
+	require.Equal(s.T(), []time.Duration{settle}, s.sleeps)
+}
+
+func (s *ServiceSuite) TestBatchCannotBringTheAppForward() {
+	s.read()
+	s.p.On("UserIdle").Return(time.Hour).Once()
+	s.p.On("Activate", textEdit).Return(errors.New("platform failed")).Once()
+	s.fails(s.batch(context.Background(), drag(0, 0, 200, 100)),
+		proto.CodeInternal, "0 of 1 actions done in TextEdit; action 1 (drag) failed: platform failed")
+	s.p.AssertNotCalled(s.T(), "Activate", finder)
+	s.p.AssertNotCalled(s.T(), "Windows", mock.Anything)
+}
+
+func (s *ServiceSuite) TestBatchStopsAtAnUnconfirmedPress() {
+	s.read()
+	s.p.On("Press", uintptr(3)).Return(fmt.Errorf("press: %w", ErrNoReply)).Once()
+	var res proto.ActionResult
+	s.ok(s.batch(context.Background(),
+		proto.ActionParams{Action: proto.ActionClick, Index: 3},
+		proto.ActionParams{Action: proto.ActionClick, Index: 3},
+	), &res)
+	require.Equal(s.T(), "0 of 2 actions done in TextEdit; action 1 (click) was sent but not confirmed, so the rest weren't sent; read the state", res.Message)
+	s.p.AssertNotCalled(s.T(), "Click", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func (s *ServiceSuite) TestBatchStopsWhenCancelled() {
+	s.read()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.p.On("SetValue", uintptr(2), "a").Return(nil).Once().Run(func(mock.Arguments) { cancel() })
+	s.fails(s.batch(ctx,
+		proto.ActionParams{Action: proto.ActionSetValue, Index: 2, Value: "a"},
+		proto.ActionParams{Action: proto.ActionSetValue, Index: 2, Value: "b"},
+	), proto.CodeInternal, "1 of 2 actions done in TextEdit; action 2 (set_value) failed: context canceled")
+}
+
+func (s *ServiceSuite) TestBatchKeepsAMenuOpen() {
+	s.read()
+	s.foreground(false)
+	s.p.On("Windows", textEdit).Return([]uint32{5}).Once()
+	s.p.On("Drag", Point{100, 50}, Point{200, 100}).Return(nil).Once()
+	s.p.On("Click", Point{175, 80}, ButtonRight, 1).Return(nil).Once()
+	var res proto.ActionResult
+	s.ok(s.batch(context.Background(),
+		drag(0, 0, 200, 100),
+		proto.ActionParams{Action: proto.ActionRightClick, Index: 2},
+	), &res)
+	require.Equal(s.T(), "2 of 2 actions done in TextEdit", res.Message)
+	require.Empty(s.T(), s.sleeps)
+	s.p.AssertNotCalled(s.T(), "Activate", finder)
+}
+
+func (s *ServiceSuite) TestBatchLeavesAnOpenedWindowInFront() {
+	s.read()
+	s.p.On("UserIdle").Return(time.Hour).Once()
+	s.p.On("Activate", textEdit).Return(nil).Once()
+	s.p.On("Frontmost", textEdit).Return(true).Once()
+	s.p.On("Windows", textEdit).Return([]uint32{5}).Once()
+	s.p.On("Click", Point{110, 55}, ButtonLeft, 1).Return(nil).Once()
+	s.p.On("Windows", textEdit).Return([]uint32{8, 5}).Once()
+	var res proto.ActionResult
+	s.ok(s.batch(context.Background(), proto.ActionParams{Action: proto.ActionClick, X: ptr(20), Y: ptr(10)}), &res)
+	require.Equal(s.T(), "1 of 1 actions done in TextEdit"+stayedNote, res.Message)
+	require.Equal(s.T(), []time.Duration{settle}, s.sleeps)
+	s.p.AssertNotCalled(s.T(), "Activate", finder)
 }

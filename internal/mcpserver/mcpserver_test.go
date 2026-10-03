@@ -39,6 +39,11 @@ func (m *mockAPI) Action(ctx context.Context, p proto.ActionParams) (proto.Actio
 	return args.Get(0).(proto.ActionResult), args.Error(1)
 }
 
+func (m *mockAPI) Batch(ctx context.Context, p proto.BatchParams) (proto.ActionResult, error) {
+	args := m.Called(ctx, p)
+	return args.Get(0).(proto.ActionResult), args.Error(1)
+}
+
 type MCPSuite struct {
 	suite.Suite
 	api     *mockAPI
@@ -99,7 +104,7 @@ func (s *MCPSuite) TestTools() {
 	for _, t := range res.Tools {
 		names = append(names, t.Name)
 	}
-	require.ElementsMatch(s.T(), []string{"list_apps", "start_app", "get_state", "click", "type", "press_key", "scroll", "drag", "set_value"}, names)
+	require.ElementsMatch(s.T(), []string{"list_apps", "start_app", "get_state", "click", "type", "press_key", "scroll", "drag", "set_value", "batch"}, names)
 }
 
 func (s *MCPSuite) TestListApps() {
@@ -198,6 +203,54 @@ func (s *MCPSuite) TestClickBadButtons() {
 	res = s.call("click", map[string]any{"app": "a", "button": "middle"})
 	require.True(s.T(), res.IsError)
 	require.Contains(s.T(), text(res), `"middle"`)
+}
+
+func (s *MCPSuite) TestBatch() {
+	s.api.On("Batch", agent("test-agent"), proto.BatchParams{BundleID: "a", Actions: []proto.ActionParams{
+		{BundleID: "a", Action: proto.ActionClick, Index: 3},
+		{BundleID: "a", Action: proto.ActionDoubleClick, X: ptr(1), Y: ptr(2)},
+		{BundleID: "a", Action: proto.ActionRightClick, Index: 4},
+		{BundleID: "a", Action: proto.ActionType, Text: "hi", Foreground: true},
+		{BundleID: "a", Action: proto.ActionKey, Keys: "cmd+s", Index: 5},
+		{BundleID: "a", Action: proto.ActionScroll, DX: -1, DY: 3},
+		{BundleID: "a", Action: proto.ActionDrag, X: ptr(1), Y: ptr(2), ToX: ptr(3), ToY: ptr(4)},
+		{BundleID: "a", Action: proto.ActionSetValue, Index: 7, Value: "v"},
+	}}).Return(proto.ActionResult{Message: "8 of 8 actions done in A"}, nil).Once()
+	res := s.call("batch", map[string]any{"app": "a", "actions": []any{
+		map[string]any{"action": "click", "index": 3},
+		map[string]any{"action": "click", "double": true, "x": 1, "y": 2},
+		map[string]any{"action": "click", "button": "right", "index": 4},
+		map[string]any{"action": "type", "text": "hi", "foreground": true},
+		map[string]any{"action": "press_key", "keys": "cmd+s", "index": 5},
+		map[string]any{"action": "scroll", "dx": -1, "dy": 3},
+		map[string]any{"action": "drag", "x": 1, "y": 2, "to_x": 3, "to_y": 4},
+		map[string]any{"action": "set_value", "index": 7, "value": "v"},
+	}})
+	require.False(s.T(), res.IsError)
+	require.Equal(s.T(), "8 of 8 actions done in A", text(res))
+
+	s.api.On("Batch", anyCtx, mock.Anything).Return(proto.ActionResult{}, errors.New("internal: 1 of 2 actions done")).Once()
+	res = s.call("batch", map[string]any{"app": "a", "actions": []any{map[string]any{"action": "click", "index": 1}}})
+	require.True(s.T(), res.IsError)
+	require.Equal(s.T(), "internal: 1 of 2 actions done", text(res))
+}
+
+func (s *MCPSuite) TestBatchBadActions() {
+	tests := []struct {
+		name   string
+		action map[string]any
+		want   string
+	}{
+		{"unknown", map[string]any{"action": "hover"}, `action 2: unknown action "hover"; use click, type, press_key, scroll, drag or set_value`},
+		{"bad button", map[string]any{"action": "click", "button": "right", "double": true}, "action 2: double is only for the left button"},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			res := s.call("batch", map[string]any{"app": "a", "actions": []any{map[string]any{"action": "click", "index": 1}, tt.action}})
+			require.True(s.T(), res.IsError)
+			require.Equal(s.T(), tt.want, text(res))
+		})
+	}
 }
 
 func (s *MCPSuite) TestUnnamedClient() {

@@ -28,7 +28,7 @@ import (
 
 type mockEngine struct{ mock.Mock }
 
-func (m *mockEngine) Handle(req proto.Request) proto.Response {
+func (m *mockEngine) Handle(_ context.Context, req proto.Request) proto.Response {
 	return m.Called(req).Get(0).(proto.Response)
 }
 
@@ -290,6 +290,28 @@ func (s *ServerSuite) TestStateSavedAllow() {
 	var st proto.State
 	require.NoError(s.T(), json.Unmarshal(rec.Body.Bytes(), &st))
 	require.Equal(s.T(), "Notes", st.Window)
+}
+
+func (s *ServerSuite) TestBatchIsGatedAndAuditedAsOneCall() {
+	require.NoError(s.T(), s.store.Save(approval.Saved{BundleID: notes.BundleID, TeamID: notes.TeamID, Decision: approval.Allow}))
+	s.apps(notes)
+	s.engine.On("Handle", mock.MatchedBy(func(r proto.Request) bool {
+		var p proto.BatchParams
+		return r.Method == proto.MethodBatch && json.Unmarshal(r.Params, &p) == nil && len(p.Actions) == 3
+	})).Return(ok(proto.ActionResult{Message: "3 of 3 actions done in Notes"})).Once()
+	rec := s.agent(http.MethodPost, "/v1/batch", `{"bundle_id":"com.apple.Notes","actions":[
+		{"action":"type","text":"hé"},{"action":"set_value","index":2,"value":"v"},{"action":"click","index":1}]}`)
+	require.Equal(s.T(), http.StatusOK, rec.Code, rec.Body.String())
+	require.JSONEq(s.T(), `{"message":"3 of 3 actions done in Notes"}`, rec.Body.String())
+
+	lines := s.auditLines()
+	require.Len(s.T(), lines, 1)
+	require.Equal(s.T(), proto.MethodBatch, lines[0].Action)
+	require.Equal(s.T(), 3, lines[0].TypedChars)
+	require.Equal(s.T(), proto.MethodBatch, s.srv.Activities()[0].Action)
+
+	rec = s.agent(http.MethodPost, "/v1/batch", `{`)
+	require.Equal(s.T(), http.StatusBadRequest, rec.Code)
 }
 
 func (s *ServerSuite) TestGatedRefusals() {

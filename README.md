@@ -116,6 +116,7 @@ the Mac's loopback, so `serve` doesn't need to listen on any other interface.
 | `scroll`    | Scroll at an element or point                                    |
 | `drag`      | Drag between two points                                          |
 | `set_value` | Set an element's value directly                                  |
+| `batch`     | Run up to 100 of the actions above on one app in one call        |
 
 ## Approvals and control
 
@@ -183,6 +184,7 @@ that **This session** and **Stop** apply to).
 | POST   | `/v1/apps/start` | `{"bundle_id"}`                     |
 | POST   | `/v1/state`      | `{"bundle_id", "capture", ...}`     |
 | POST   | `/v1/action`     | `{"bundle_id", "action", ...}`      |
+| POST   | `/v1/batch`      | `{"bundle_id", "actions": [...]}`   |
 
 Errors are `{"error": {"code", "message"}}`, with codes such as `denied`,
 `not_running`, `paused`, `stopped` and `unauthorized`.

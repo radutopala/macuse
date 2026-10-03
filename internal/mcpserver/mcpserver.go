@@ -4,6 +4,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -20,6 +21,7 @@ type API interface {
 	StartApp(ctx context.Context, bundleID string) (proto.App, error)
 	GetState(ctx context.Context, p proto.GetStateParams) (proto.State, error)
 	Action(ctx context.Context, p proto.ActionParams) (proto.ActionResult, error)
+	Batch(ctx context.Context, p proto.BatchParams) (proto.ActionResult, error)
 }
 
 // Server is the MCP server.
@@ -99,6 +101,11 @@ func (s *Server) register() {
 		Name:        "set_value",
 		Description: "Set an element's value directly (text fields, sliders, scrollbars), replacing what's there without typing, in the background. It fails when the element doesn't keep the value, as checkboxes and toolbar combo boxes don't; click those instead." + indexNote,
 	}, s.handleSetValue)
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "batch",
+		Description: fmt.Sprintf("Run up to %d actions on one app in one call, in order, stopping at the first that fails: click, type, press_key, scroll, drag and set_value, each with that tool's fields. Use it for a known sequence, such as the strokes of a drawing or filling a form; read the state after it, as indexes and x/y all refer to the last get_state before the batch. Every action is checked before any is sent. Input that needs the app in front brings it forward once, and the focus goes back once, at the end.", proto.MaxBatch),
+	}, s.handleBatch)
 }
 
 type listAppsInput struct{}
@@ -157,6 +164,28 @@ type setValueInput struct {
 	App   string `json:"app" jsonschema:"The app's bundle id"`
 	Index int    `json:"index" jsonschema:"The element's [N] from the last get_state"`
 	Value string `json:"value" jsonschema:"The new value"`
+}
+
+type batchInput struct {
+	App     string        `json:"app" jsonschema:"The app's bundle id"`
+	Actions []batchAction `json:"actions" jsonschema:"The actions, in order"`
+}
+
+type batchAction struct {
+	Action     string   `json:"action" jsonschema:"click, type, press_key, scroll, drag or set_value"`
+	Index      int      `json:"index,omitempty" jsonschema:"The element's [N] from the last get_state"`
+	X          *float64 `json:"x,omitempty" jsonschema:"Pixels from the screenshot's left edge; a drag's start"`
+	Y          *float64 `json:"y,omitempty" jsonschema:"Pixels from the screenshot's top edge; a drag's start"`
+	ToX        *float64 `json:"to_x,omitempty" jsonschema:"A drag's end, pixels from the screenshot's left edge"`
+	ToY        *float64 `json:"to_y,omitempty" jsonschema:"A drag's end, pixels from the screenshot's top edge"`
+	Button     string   `json:"button,omitempty" jsonschema:"click: left (default) or right"`
+	Double     bool     `json:"double,omitempty" jsonschema:"click: double-click (left button only)"`
+	Text       string   `json:"text,omitempty" jsonschema:"type: the text to type"`
+	Keys       string   `json:"keys,omitempty" jsonschema:"press_key: e.g. cmd+s, Return, ctrl+a backspace"`
+	DX         int      `json:"dx,omitempty" jsonschema:"scroll: lines to scroll right (negative: left)"`
+	DY         int      `json:"dy,omitempty" jsonschema:"scroll: lines to scroll down (negative: up)"`
+	Value      string   `json:"value,omitempty" jsonschema:"set_value: the new value"`
+	Foreground bool     `json:"foreground,omitempty" jsonschema:"type, press_key: bring the app forward for the keys"`
 }
 
 func textResult(text string) *mcp.CallToolResult {
@@ -239,19 +268,9 @@ func (s *Server) handleGetState(ctx context.Context, req *mcp.CallToolRequest, i
 
 func (s *Server) handleClick(ctx context.Context, req *mcp.CallToolRequest, in clickInput) (*mcp.CallToolResult, any, error) {
 	s.logger.Info("mcp tool call", "tool", "click", "app", in.App, "index", in.Index)
-	action := proto.ActionClick
-	switch in.Button {
-	case "", "left":
-		if in.Double {
-			action = proto.ActionDoubleClick
-		}
-	case "right":
-		if in.Double {
-			return errorResult("double is only for the left button"), nil, nil
-		}
-		action = proto.ActionRightClick
-	default:
-		return errorResult(fmt.Sprintf("button must be left or right, got %q", in.Button)), nil, nil
+	action, err := clickAction(in.Button, in.Double)
+	if err != nil {
+		return errorResult(err.Error()), nil, nil
 	}
 	return s.action(ctx, req, proto.ActionParams{BundleID: in.App, Action: action, Index: in.Index, X: in.X, Y: in.Y})
 }
@@ -279,6 +298,57 @@ func (s *Server) handleDrag(ctx context.Context, req *mcp.CallToolRequest, in dr
 func (s *Server) handleSetValue(ctx context.Context, req *mcp.CallToolRequest, in setValueInput) (*mcp.CallToolResult, any, error) {
 	s.logger.Info("mcp tool call", "tool", "set_value", "app", in.App, "index", in.Index)
 	return s.action(ctx, req, proto.ActionParams{BundleID: in.App, Action: proto.ActionSetValue, Index: in.Index, Value: in.Value})
+}
+
+// clickAction names the click a button and double ask for.
+func clickAction(button string, double bool) (string, error) {
+	switch button {
+	case "", "left":
+		if double {
+			return proto.ActionDoubleClick, nil
+		}
+		return proto.ActionClick, nil
+	case "right":
+		if double {
+			return "", errors.New("double is only for the left button")
+		}
+		return proto.ActionRightClick, nil
+	}
+	return "", fmt.Errorf("button must be left or right, got %q", button)
+}
+
+// batchActions maps the tool's actions to the API's.
+var batchActions = map[string]string{
+	"type":      proto.ActionType,
+	"press_key": proto.ActionKey,
+	"scroll":    proto.ActionScroll,
+	"drag":      proto.ActionDrag,
+	"set_value": proto.ActionSetValue,
+}
+
+func (s *Server) handleBatch(ctx context.Context, req *mcp.CallToolRequest, in batchInput) (*mcp.CallToolResult, any, error) {
+	s.logger.Info("mcp tool call", "tool", "batch", "app", in.App, "actions", len(in.Actions))
+	actions := make([]proto.ActionParams, len(in.Actions))
+	for i, a := range in.Actions {
+		action, ok := batchActions[a.Action]
+		if a.Action == "click" {
+			var err error
+			if action, err = clickAction(a.Button, a.Double); err != nil {
+				return errorResult(fmt.Sprintf("action %d: %v", i+1, err)), nil, nil
+			}
+		} else if !ok {
+			return errorResult(fmt.Sprintf("action %d: unknown action %q; use click, type, press_key, scroll, drag or set_value", i+1, a.Action)), nil, nil
+		}
+		actions[i] = proto.ActionParams{
+			BundleID: in.App, Action: action, Index: a.Index, X: a.X, Y: a.Y, ToX: a.ToX, ToY: a.ToY,
+			Text: a.Text, Keys: a.Keys, DX: a.DX, DY: a.DY, Value: a.Value, Foreground: a.Foreground,
+		}
+	}
+	res, err := s.api.Batch(named(ctx, req), proto.BatchParams{BundleID: in.App, Actions: actions})
+	if err != nil {
+		return errorResult(err.Error()), nil, nil
+	}
+	return textResult(res.Message), nil, nil
 }
 
 // action performs one action and returns the engine's message.

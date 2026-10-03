@@ -89,6 +89,16 @@ func (s *ClientSuite) TestCalls() {
 	res, err := s.c.Action(ctx, proto.ActionParams{BundleID: "a", Action: proto.ActionClick, Index: 4})
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), "clicked", res.Message)
+
+	s.serve(http.MethodPost, "/v1/batch", 200, `{"message":"2 of 2 actions done in A"}`, func(r *http.Request) {
+		var p proto.BatchParams
+		jsonBody(s, r, &p)
+		require.Equal(s.T(), "a", p.BundleID)
+		require.Len(s.T(), p.Actions, 2)
+	})
+	res, err = s.c.Batch(ctx, proto.BatchParams{BundleID: "a", Actions: []proto.ActionParams{{Action: proto.ActionClick, Index: 1}, {Action: proto.ActionKey, Keys: "a"}}})
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "2 of 2 actions done in A", res.Message)
 }
 
 func (s *ClientSuite) TestNameFromContext() {

@@ -94,6 +94,13 @@ func (c *Client) Action(ctx context.Context, p proto.ActionParams) (proto.Action
 	return res, err
 }
 
+// Batch performs several input actions on one app, in order.
+func (c *Client) Batch(ctx context.Context, p proto.BatchParams) (proto.ActionResult, error) {
+	var res proto.ActionResult
+	err := c.do(ctx, http.MethodPost, "/v1/batch", p, &res)
+	return res, err
+}
+
 // do sends one call. Failures come back as *proto.Error, with the server's
 // message when it answered.
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {

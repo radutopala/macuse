@@ -103,6 +103,22 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
+	var req proto.BatchParams
+	if !decode(w, r, &req) {
+		return
+	}
+	typed := 0
+	for _, a := range req.Actions {
+		typed += len([]rune(a.Text)) + len([]rune(a.Value))
+	}
+	s.gated(w, r, req.BundleID, proto.MethodBatch, typed, func(ctx context.Context) (any, error) {
+		var res proto.ActionResult
+		err := s.call(ctx, proto.MethodBatch, req, &res)
+		return res, err
+	})
+}
+
 // gated runs one call on an app past the deny list and the user's
 // approval, auditing the decision.
 func (s *Server) gated(w http.ResponseWriter, r *http.Request, bundleID, action string, typed int, run func(context.Context) (any, error)) {

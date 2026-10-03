@@ -21,7 +21,7 @@ import (
 
 // Engine serves desktop requests. Satisfied by *core.Service.
 type Engine interface {
-	Handle(req proto.Request) proto.Response
+	Handle(ctx context.Context, req proto.Request) proto.Response
 }
 
 // Host is what the popup controls beyond the API: the login item, the CLI
@@ -112,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 	agent.HandleFunc("POST /v1/apps/start", s.handleStartApp)
 	agent.HandleFunc("POST /v1/state", s.handleState)
 	agent.HandleFunc("POST /v1/action", s.handleAction)
+	agent.HandleFunc("POST /v1/batch", s.handleBatch)
 
 	ui := http.NewServeMux()
 	s.registerUI(ui)
@@ -131,7 +132,7 @@ func (s *Server) call(ctx context.Context, method string, params, out any) error
 		raw, _ = json.Marshal(params)
 	}
 	done := make(chan proto.Response, 1)
-	go func() { done <- s.Engine.Handle(proto.Request{Method: method, Params: raw}) }()
+	go func() { done <- s.Engine.Handle(ctx, proto.Request{Method: method, Params: raw}) }()
 	select {
 	case resp := <-done:
 		if resp.Error != nil {

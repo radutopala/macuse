@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,10 +68,12 @@ const (
 )
 
 // Handle serves one request.
-func (s *Service) Handle(req proto.Request) proto.Response {
+// A batch stops between actions once ctx is done, as when the user pauses
+// or stops the session.
+func (s *Service) Handle(ctx context.Context, req proto.Request) proto.Response {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	result, err := s.dispatch(req)
+	result, err := s.dispatch(ctx, req)
 	if err != nil {
 		return proto.Response{ID: req.ID, Error: toProtoError(err)}
 	}
@@ -101,7 +104,7 @@ func decode(raw json.RawMessage, v any) error {
 	return nil
 }
 
-func (s *Service) dispatch(req proto.Request) (any, error) {
+func (s *Service) dispatch(ctx context.Context, req proto.Request) (any, error) {
 	switch req.Method {
 	case proto.MethodListApps:
 		apps, err := s.platform.ListApps()
@@ -127,6 +130,12 @@ func (s *Service) dispatch(req proto.Request) (any, error) {
 			return nil, err
 		}
 		return s.action(p)
+	case proto.MethodBatch:
+		var p proto.BatchParams
+		if err := decode(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return s.batch(ctx, p)
 	case proto.MethodPermissions:
 		return s.platform.Permissions(), nil
 	case proto.MethodRequestPermissions:
@@ -185,13 +194,7 @@ func (s *Service) waitIdle() error {
 // the input opened would close with the focus gone, so when the app opened a
 // window it's left in front instead, and stayed reports that.
 func (s *Service) foreground(app proto.App, front *proto.App, restore bool, run func() error) (stayed bool, err error) {
-	if err := s.waitIdle(); err != nil {
-		return false, err
-	}
-	if err := s.platform.Activate(app); err != nil {
-		return false, err
-	}
-	if err := s.waitFront(app); err != nil {
+	if err := s.bring(app); err != nil {
 		return false, err
 	}
 	restore = restore && front != nil && front.PID != app.PID
@@ -201,14 +204,32 @@ func (s *Service) foreground(app proto.App, front *proto.App, restore bool, run 
 	}
 	err = run()
 	if restore {
-		s.sleep(settle)
-		if opened(before, s.platform.Windows(app)) {
-			return true, err
-		}
-		// Best effort: the action itself went through.
-		_ = s.platform.Activate(*front)
+		return s.giveBack(app, *front, before), err
 	}
 	return false, err
+}
+
+// bring brings app forward once the user pauses.
+func (s *Service) bring(app proto.App) error {
+	if err := s.waitIdle(); err != nil {
+		return err
+	}
+	if err := s.platform.Activate(app); err != nil {
+		return err
+	}
+	return s.waitFront(app)
+}
+
+// giveBack gives the focus back to front, unless app opened a window since
+// it had the windows in before; stayed reports that it was left in front.
+func (s *Service) giveBack(app, front proto.App, before []uint32) (stayed bool) {
+	s.sleep(settle)
+	if opened(before, s.platform.Windows(app)) {
+		return true
+	}
+	// Best effort: the input itself went through.
+	_ = s.platform.Activate(front)
+	return false
 }
 
 // opened reports whether after holds a window that before doesn't.
@@ -422,7 +443,9 @@ func (s *Service) action(p proto.ActionParams) (proto.ActionResult, error) {
 	if err != nil {
 		return proto.ActionResult{}, err
 	}
-	stayed, err := s.perform(app, front, st)
+	stayed, err := s.perform(st, func(keepFocus bool, run func() error) (bool, error) {
+		return s.foreground(app, front, !keepFocus, run)
+	})
 	if err != nil {
 		if errors.Is(err, ErrNoReply) {
 			// Retrying could press twice; the agent should look first.
@@ -432,9 +455,79 @@ func (s *Service) action(p proto.ActionParams) (proto.ActionResult, error) {
 	}
 	msg := fmt.Sprintf("%s done in %s", p.Action, app.Name)
 	if stayed {
-		msg += "; it opened a window, such as a popover or menu, so it was left in front for that to stay open"
+		msg += stayedNote
 	}
 	return proto.ActionResult{Message: msg}, nil
+}
+
+// stayedNote tells the agent why the app was left in front.
+const stayedNote = "; it opened a window, such as a popover or menu, so it was left in front for that to stay open"
+
+// batch runs the actions in order. They're all resolved first, so a bad one
+// sends nothing; input that needs the app frontmost brings it forward once,
+// and the focus goes back once, after the last action or the first failure.
+func (s *Service) batch(ctx context.Context, p proto.BatchParams) (proto.ActionResult, error) {
+	if len(p.Actions) == 0 || len(p.Actions) > proto.MaxBatch {
+		return proto.ActionResult{}, invalid("a batch takes 1 to %d actions, got %d", proto.MaxBatch, len(p.Actions))
+	}
+	app, front, err := s.runningApp(p.BundleID)
+	if err != nil {
+		return proto.ActionResult{}, err
+	}
+	steps := make([]step, len(p.Actions))
+	for i, a := range p.Actions {
+		a.BundleID = p.BundleID
+		if steps[i], err = s.actionStep(app, a); err != nil {
+			return proto.ActionResult{}, prefixed(fmt.Sprintf("action %d (%s), so nothing was sent: ", i+1, a.Action), err)
+		}
+	}
+
+	restore := front != nil && front.PID != app.PID
+	brought, keep := false, false
+	var before []uint32
+	inFront := func(keepFocus bool, run func() error) (bool, error) {
+		if !brought {
+			if err := s.bring(app); err != nil {
+				return false, err
+			}
+			brought = true
+			if restore {
+				before = s.platform.Windows(app)
+			}
+		}
+		keep = keep || keepFocus
+		return false, run()
+	}
+	done := 0
+	for done < len(steps) && err == nil {
+		if err = ctx.Err(); err == nil {
+			_, err = s.perform(steps[done], inFront)
+		}
+		if err == nil {
+			done++
+		}
+	}
+	stayed := brought && restore && !keep && s.giveBack(app, *front, before)
+
+	msg := fmt.Sprintf("%d of %d actions done in %s", done, len(steps), app.Name)
+	if stayed {
+		msg += stayedNote
+	}
+	if err == nil {
+		return proto.ActionResult{Message: msg}, nil
+	}
+	failed := p.Actions[done].Action
+	if errors.Is(err, ErrNoReply) {
+		// Retrying could press twice; the agent should look first.
+		return proto.ActionResult{Message: fmt.Sprintf("%s; action %d (%s) was sent but not confirmed, so the rest weren't sent; read the state", msg, done+1, failed)}, nil
+	}
+	return proto.ActionResult{}, prefixed(fmt.Sprintf("%s; action %d (%s) failed: ", msg, done+1, failed), err)
+}
+
+// prefixed puts prefix before err's message, keeping its code.
+func prefixed(prefix string, err error) error {
+	pe := toProtoError(err)
+	return &proto.Error{Code: pe.Code, Message: prefix + pe.Message}
 }
 
 // unconfirmed reports an action the app took but didn't answer, most likely
@@ -452,9 +545,13 @@ func (s *Service) unconfirmed(app proto.App, front *proto.App, action string) st
 	return msg + "it was brought to the front to show any dialog it holds, so read its state"
 }
 
-// perform runs the step; stayed reports the app left in front, as foreground
-// does.
-func (s *Service) perform(app proto.App, front *proto.App, st step) (stayed bool, err error) {
+// inFront runs input with the app frontmost; keepFocus leaves it there
+// after, and stayed reports it left there.
+type inFront func(keepFocus bool, run func() error) (stayed bool, err error)
+
+// perform runs the step, sending input that needs the app frontmost through
+// fg; stayed is fg's.
+func (s *Service) perform(st step, fg inFront) (stayed bool, err error) {
 	if st.background != nil {
 		err := st.background()
 		var perr *proto.Error
@@ -471,7 +568,7 @@ func (s *Service) perform(app proto.App, front *proto.App, st step) (stayed bool
 	if st.inputBackground {
 		return false, st.input()
 	}
-	return s.foreground(app, front, !st.keepFocus, st.input)
+	return fg(st.keepFocus, st.input)
 }
 
 // actionStep validates the params and resolves targets before anything is

@@ -10,6 +10,7 @@ const (
 	MethodStartApp           = "start_app"
 	MethodGetState           = "get_state"
 	MethodAction             = "action"
+	MethodBatch              = "batch"
 	MethodPermissions        = "permissions"
 	MethodRequestPermissions = "request_permissions"
 )
@@ -164,7 +165,18 @@ type ActionParams struct {
 	Foreground bool `json:"foreground,omitempty"`
 }
 
-// ActionResult is the MethodAction result.
+// MaxBatch caps the actions in one BatchParams.
+const MaxBatch = 100
+
+// BatchParams drives several actions against one app in order, stopping at
+// the first that fails. Each action's BundleID is ignored; indexes and
+// pixels all refer to the last State read before the batch.
+type BatchParams struct {
+	BundleID string         `json:"bundle_id"`
+	Actions  []ActionParams `json:"actions"`
+}
+
+// ActionResult is the MethodAction and MethodBatch result.
 type ActionResult struct {
 	Message string `json:"message"`
 }
