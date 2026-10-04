@@ -95,6 +95,16 @@ func (s *ServiceSuite) foreground(restore bool) {
 	}
 }
 
+// userCursor is where the user left the pointer.
+var userCursor = Point{-800, 900}
+
+// cursor expects the pointer moved to at before the app comes forward, and
+// put back after.
+func (s *ServiceSuite) cursor(at Point) {
+	s.p.On("MoveCursor", at).Return(userCursor).Once()
+	s.p.On("MoveCursor", userCursor).Return(at).Once()
+}
+
 func ptr(v float64) *float64 { return &v }
 
 // --- dispatch ---
@@ -397,25 +407,26 @@ func (s *ServiceSuite) TestActions() {
 		name   string
 		p      proto.ActionParams
 		focus  int
+		at     *Point
 		expect func()
 	}{
 		{name: "click presses", p: proto.ActionParams{Action: proto.ActionClick, Index: 3}, expect: func() {
 			s.p.On("Press", uintptr(3)).Return(nil)
 		}},
-		{name: "click falls back to the center when the press is refused", p: proto.ActionParams{Action: proto.ActionClick, Index: 3}, focus: restore, expect: func() {
+		{name: "click falls back to the center when the press is refused", p: proto.ActionParams{Action: proto.ActionClick, Index: 3}, focus: restore, at: &Point{}, expect: func() {
 			s.p.On("Press", uintptr(3)).Return(unsupported)
 			s.p.On("Click", Point{}, ButtonLeft, 1).Return(nil)
 		}},
-		{name: "click without press uses the center", p: proto.ActionParams{Action: proto.ActionClick, Index: 2}, focus: restore, expect: func() {
+		{name: "click without press uses the center", p: proto.ActionParams{Action: proto.ActionClick, Index: 2}, focus: restore, at: &center, expect: func() {
 			s.p.On("Click", center, ButtonLeft, 1).Return(nil)
 		}},
-		{name: "click at coordinates", p: proto.ActionParams{Action: proto.ActionClick, X: ptr(20), Y: ptr(10)}, focus: restore, expect: func() {
+		{name: "click at coordinates", p: proto.ActionParams{Action: proto.ActionClick, X: ptr(20), Y: ptr(10)}, focus: restore, at: &Point{110, 55}, expect: func() {
 			s.p.On("Click", Point{110, 55}, ButtonLeft, 1).Return(nil)
 		}},
-		{name: "double click", p: proto.ActionParams{Action: proto.ActionDoubleClick, Index: 3}, focus: restore, expect: func() {
+		{name: "double click", p: proto.ActionParams{Action: proto.ActionDoubleClick, Index: 3}, focus: restore, at: &Point{}, expect: func() {
 			s.p.On("Click", Point{}, ButtonLeft, 2).Return(nil)
 		}},
-		{name: "right click keeps the menu open", p: proto.ActionParams{Action: proto.ActionRightClick, Index: 2}, focus: keep, expect: func() {
+		{name: "right click keeps the menu open", p: proto.ActionParams{Action: proto.ActionRightClick, Index: 2}, focus: keep, at: &center, expect: func() {
 			s.p.On("Click", center, ButtonRight, 1).Return(nil)
 		}},
 		{name: "type inserts at the focus", p: proto.ActionParams{Action: proto.ActionType, Text: "hi"}, expect: func() {
@@ -436,7 +447,7 @@ func (s *ServiceSuite) TestActions() {
 			s.p.On("InsertText", textEdit, uintptr(2), "hi").Return(unsupported)
 			s.p.On("TypeTo", textEdit, "hi").Return(nil)
 		}},
-		{name: "type into element falls back to click and keys in the foreground", p: proto.ActionParams{Action: proto.ActionType, Text: "hi", Index: 2, Foreground: true}, focus: restore, expect: func() {
+		{name: "type into element falls back to click and keys in the foreground", p: proto.ActionParams{Action: proto.ActionType, Text: "hi", Index: 2, Foreground: true}, focus: restore, at: &center, expect: func() {
 			s.p.On("InsertText", textEdit, uintptr(2), "hi").Return(unsupported)
 			s.p.On("Click", center, ButtonLeft, 1).Return(nil)
 			s.p.On("Type", "hi").Return(nil)
@@ -464,10 +475,10 @@ func (s *ServiceSuite) TestActions() {
 			s.p.On("Focus", uintptr(2)).Return(nil)
 			s.p.On("Key", Combo{Key: "a"}).Return(nil)
 		}},
-		{name: "scroll", p: proto.ActionParams{Action: proto.ActionScroll, Index: 2, DY: 40}, focus: restore, expect: func() {
+		{name: "scroll", p: proto.ActionParams{Action: proto.ActionScroll, Index: 2, DY: 40}, focus: restore, at: &center, expect: func() {
 			s.p.On("Scroll", center, 0, 40).Return(nil)
 		}},
-		{name: "drag", p: proto.ActionParams{Action: proto.ActionDrag, X: ptr(0), Y: ptr(0), ToX: ptr(200), ToY: ptr(100)}, focus: restore, expect: func() {
+		{name: "drag", p: proto.ActionParams{Action: proto.ActionDrag, X: ptr(0), Y: ptr(0), ToX: ptr(200), ToY: ptr(100)}, focus: restore, at: &Point{100, 50}, expect: func() {
 			s.p.On("Drag", Point{100, 50}, Point{200, 100}).Return(nil)
 		}},
 		{name: "set value", p: proto.ActionParams{Action: proto.ActionSetValue, Index: 2, Value: "new"}, expect: func() {
@@ -480,6 +491,9 @@ func (s *ServiceSuite) TestActions() {
 			s.read()
 			if tc.focus != background {
 				s.foreground(tc.focus == restore)
+			}
+			if tc.at != nil {
+				s.cursor(*tc.at)
 			}
 			tc.expect()
 			var res proto.ActionResult
@@ -686,6 +700,7 @@ func (s *ServiceSuite) TestPopoverPastTheWindowEdge() {
 				s.p.On("Press", uintptr(3)).Return(&proto.Error{Code: proto.CodeUnsupported, Message: "the element refused the press"}).Once()
 			}
 			s.foreground(true)
+			s.cursor(swatch)
 			s.p.On("Click", swatch, ButtonLeft, 1).Return(nil).Once()
 			var res proto.ActionResult
 			s.ok(s.act(tc.p), &res)
@@ -721,6 +736,7 @@ func (s *ServiceSuite) TestForegroundLeavesAnOpenedWindowInFront() {
 	s.p.On("Activate", textEdit).Return(nil).Once()
 	s.p.On("Frontmost", textEdit).Return(true).Once()
 	s.p.On("Windows", textEdit).Return([]uint32{5}).Once()
+	s.cursor(Point{110, 60})
 	s.p.On("Click", Point{110, 60}, ButtonLeft, 1).Return(nil).Once()
 	s.p.On("Windows", textEdit).Return([]uint32{8, 5}).Once()
 	var res proto.ActionResult
@@ -728,6 +744,33 @@ func (s *ServiceSuite) TestForegroundLeavesAnOpenedWindowInFront() {
 	require.Equal(s.T(), "click done in TextEdit; it opened a window, such as a popover or menu, so it was left in front for that to stay open", res.Message)
 	require.Equal(s.T(), []time.Duration{settle}, s.sleeps)
 	s.p.AssertNotCalled(s.T(), "Activate", finder)
+}
+
+func (s *ServiceSuite) TestPointerWaitsWhereTheClickLands() {
+	// An app reads the pointer as it comes forward; Blender closes a
+	// submenu the pointer is far from, before the click on it lands.
+	s.read()
+	s.foreground(true)
+	s.cursor(Point{110, 55})
+	s.p.On("Click", Point{110, 55}, ButtonLeft, 1).Return(nil).Once()
+	var res proto.ActionResult
+	s.ok(s.act(proto.ActionParams{Action: proto.ActionClick, X: ptr(20), Y: ptr(10)}), &res)
+	var calls []string
+	for _, c := range s.p.Calls {
+		switch c.Method {
+		case "MoveCursor", "Click":
+			calls = append(calls, fmt.Sprintf("%s %v", c.Method, c.Arguments[0]))
+		case "Activate":
+			calls = append(calls, "Activate "+c.Arguments[0].(proto.App).Name)
+		}
+	}
+	require.Equal(s.T(), []string{
+		"MoveCursor {110 55}",
+		"Activate TextEdit",
+		"Click {110 55}",
+		"MoveCursor {-800 900}",
+		"Activate Finder",
+	}, calls)
 }
 
 func (s *ServiceSuite) TestActionPlatformErrors() {
@@ -743,9 +786,15 @@ func (s *ServiceSuite) TestActionPlatformErrors() {
 			s.p.On("UserIdle").Return(time.Hour)
 			s.p.On("Activate", textEdit).Return(errors.New("platform failed")).Once()
 		}},
+		{name: "activate for a click", p: proto.ActionParams{Action: proto.ActionClick, X: ptr(20), Y: ptr(10)}, expect: func() {
+			s.p.On("UserIdle").Return(time.Hour)
+			s.cursor(Point{110, 55})
+			s.p.On("Activate", textEdit).Return(errors.New("platform failed")).Once()
+		}},
 		{name: "type click", p: proto.ActionParams{Action: proto.ActionType, Text: "x", Index: 2, Foreground: true}, expect: func() {
 			s.p.On("InsertText", textEdit, uintptr(2), "x").Return(unsupported)
 			s.foreground(true)
+			s.cursor(Point{175, 80})
 			s.p.On("Click", mock.Anything, ButtonLeft, 1).Return(errors.New("platform failed"))
 		}},
 		{name: "press", p: proto.ActionParams{Action: proto.ActionClick, Index: 3}, expect: func() {
@@ -804,6 +853,7 @@ func drag(x, y, toX, toY float64) proto.ActionParams {
 func (s *ServiceSuite) TestBatchBringsTheAppForwardOnce() {
 	s.read()
 	s.foreground(true)
+	s.cursor(Point{100, 50})
 	s.p.On("Drag", Point{100, 50}, Point{200, 100}).Return(nil).Once()
 	s.p.On("Drag", Point{110, 55}, Point{150, 75}).Return(nil).Once()
 	s.p.On("Click", Point{110, 55}, ButtonLeft, 1).Return(nil).Once()
@@ -865,6 +915,7 @@ func (s *ServiceSuite) TestBatchValidation() {
 func (s *ServiceSuite) TestBatchStopsAtTheFirstFailure() {
 	s.read()
 	s.foreground(true)
+	s.cursor(Point{100, 50})
 	s.p.On("Drag", Point{100, 50}, Point{200, 100}).Return(nil).Once()
 	s.p.On("Click", Point{110, 55}, ButtonLeft, 1).Return(errors.New("platform failed")).Once()
 	s.fails(s.batch(context.Background(),
@@ -878,6 +929,7 @@ func (s *ServiceSuite) TestBatchStopsAtTheFirstFailure() {
 func (s *ServiceSuite) TestBatchCannotBringTheAppForward() {
 	s.read()
 	s.p.On("UserIdle").Return(time.Hour).Once()
+	s.cursor(Point{100, 50})
 	s.p.On("Activate", textEdit).Return(errors.New("platform failed")).Once()
 	s.fails(s.batch(context.Background(), drag(0, 0, 200, 100)),
 		proto.CodeInternal, "0 of 1 actions done in TextEdit; action 1 (drag) failed: platform failed")
@@ -911,6 +963,7 @@ func (s *ServiceSuite) TestBatchStopsWhenCancelled() {
 func (s *ServiceSuite) TestBatchKeepsAMenuOpen() {
 	s.read()
 	s.foreground(false)
+	s.cursor(Point{100, 50})
 	s.p.On("Windows", textEdit).Return([]uint32{5}).Once()
 	s.p.On("Drag", Point{100, 50}, Point{200, 100}).Return(nil).Once()
 	s.p.On("Click", Point{175, 80}, ButtonRight, 1).Return(nil).Once()
@@ -930,6 +983,7 @@ func (s *ServiceSuite) TestBatchLeavesAnOpenedWindowInFront() {
 	s.p.On("Activate", textEdit).Return(nil).Once()
 	s.p.On("Frontmost", textEdit).Return(true).Once()
 	s.p.On("Windows", textEdit).Return([]uint32{5}).Once()
+	s.cursor(Point{110, 55})
 	s.p.On("Click", Point{110, 55}, ButtonLeft, 1).Return(nil).Once()
 	s.p.On("Windows", textEdit).Return([]uint32{8, 5}).Once()
 	var res proto.ActionResult

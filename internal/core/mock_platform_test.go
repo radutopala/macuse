@@ -61,6 +61,8 @@ func (m *mockPlatform) InsertText(app proto.App, ref uintptr, text string) error
 
 func (m *mockPlatform) UserIdle() time.Duration { return m.Called().Get(0).(time.Duration) }
 
+func (m *mockPlatform) MoveCursor(p Point) Point { return m.Called(p).Get(0).(Point) }
+
 func (m *mockPlatform) Click(p Point, button Button, count int) error {
 	return m.Called(p, button, count).Error(0)
 }

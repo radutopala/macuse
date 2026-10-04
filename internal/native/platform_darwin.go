@@ -713,6 +713,19 @@ func (p *Platform) UserIdle() (idle time.Duration) {
 	return idle
 }
 
+// MoveCursor warps the pointer to at, which posts no mouse event, and
+// returns where it was.
+func (p *Platform) MoveCursor(at core.Point) (was core.Point) {
+	p.do(func() {
+		ev := p.l.CGEventCreate(0)
+		loc := p.l.CGEventGetLocation(ev)
+		p.l.CFRelease(ev)
+		p.l.CGWarpMouseCursorPosition(cgPoint{at.X, at.Y})
+		was = core.Point{X: loc.X, Y: loc.Y}
+	})
+	return was
+}
+
 // cursorSettle lets posted mouse events land before the cursor moves back.
 const cursorSettle = 50 * time.Millisecond
 

@@ -192,9 +192,12 @@ func (s *Service) waitIdle() error {
 // user pauses, it brings app forward, and afterwards, when restore is set,
 // gives the focus back to front, the app the user was in. A popover or menu
 // the input opened would close with the focus gone, so when the app opened a
-// window it's left in front instead, and stayed reports that.
-func (s *Service) foreground(app proto.App, front *proto.App, restore bool, run func() error) (stayed bool, err error) {
-	if err := s.bring(app); err != nil {
+// window it's left in front instead, and stayed reports that. at is where
+// the input lands, if it's a pointer's.
+func (s *Service) foreground(app proto.App, front *proto.App, restore bool, at *Point, run func() error) (stayed bool, err error) {
+	was, err := s.bring(app, at)
+	if err != nil {
+		s.putCursor(was)
 		return false, err
 	}
 	restore = restore && front != nil && front.PID != app.PID
@@ -203,21 +206,37 @@ func (s *Service) foreground(app proto.App, front *proto.App, restore bool, run 
 		before = s.platform.Windows(app)
 	}
 	err = run()
+	s.putCursor(was)
 	if restore {
 		return s.giveBack(app, *front, before), err
 	}
 	return false, err
 }
 
-// bring brings app forward once the user pauses.
-func (s *Service) bring(app proto.App) error {
+// bring brings app forward once the user pauses. With at, the pointer goes
+// there first: an app reads the pointer as it comes forward, and one that
+// draws its own menus, like Blender, closes a submenu the pointer is far
+// from, before the click on it lands. was is where the pointer was, for
+// putCursor.
+func (s *Service) bring(app proto.App, at *Point) (was *Point, err error) {
 	if err := s.waitIdle(); err != nil {
-		return err
+		return nil, err
+	}
+	if at != nil {
+		w := s.platform.MoveCursor(*at)
+		was = &w
 	}
 	if err := s.platform.Activate(app); err != nil {
-		return err
+		return was, err
 	}
-	return s.waitFront(app)
+	return was, s.waitFront(app)
+}
+
+// putCursor puts the pointer back where bring found it.
+func (s *Service) putCursor(was *Point) {
+	if was != nil {
+		s.platform.MoveCursor(*was)
+	}
 }
 
 // giveBack gives the focus back to front, unless app opened a window since
@@ -324,7 +343,7 @@ func (s *Service) getState(p proto.GetStateParams) (proto.State, error) {
 		if win.ID == 0 {
 			// Without the window's id only the screen can be captured, so
 			// the window must be on top.
-			_, err = s.foreground(app, front, true, shot)
+			_, err = s.foreground(app, front, true, nil, shot)
 		} else {
 			err = shot()
 		}
@@ -432,6 +451,8 @@ type step struct {
 	// keepFocus leaves the app frontmost after input that opens a menu,
 	// which closes when the app loses the focus.
 	keepFocus bool
+	// at is where input lands, if it's a pointer's.
+	at *Point
 }
 
 func (s *Service) action(p proto.ActionParams) (proto.ActionResult, error) {
@@ -443,8 +464,8 @@ func (s *Service) action(p proto.ActionParams) (proto.ActionResult, error) {
 	if err != nil {
 		return proto.ActionResult{}, err
 	}
-	stayed, err := s.perform(st, func(keepFocus bool, run func() error) (bool, error) {
-		return s.foreground(app, front, !keepFocus, run)
+	stayed, err := s.perform(st, func(st step) (bool, error) {
+		return s.foreground(app, front, !st.keepFocus, st.at, st.input)
 	})
 	if err != nil {
 		if errors.Is(err, ErrNoReply) {
@@ -485,9 +506,11 @@ func (s *Service) batch(ctx context.Context, p proto.BatchParams) (proto.ActionR
 	restore := front != nil && front.PID != app.PID
 	brought, keep := false, false
 	var before []uint32
-	inFront := func(keepFocus bool, run func() error) (bool, error) {
+	var was *Point
+	inFront := func(st step) (bool, error) {
 		if !brought {
-			if err := s.bring(app); err != nil {
+			var err error
+			if was, err = s.bring(app, st.at); err != nil {
 				return false, err
 			}
 			brought = true
@@ -495,8 +518,8 @@ func (s *Service) batch(ctx context.Context, p proto.BatchParams) (proto.ActionR
 				before = s.platform.Windows(app)
 			}
 		}
-		keep = keep || keepFocus
-		return false, run()
+		keep = keep || st.keepFocus
+		return false, st.input()
 	}
 	done := 0
 	for done < len(steps) && err == nil {
@@ -507,6 +530,7 @@ func (s *Service) batch(ctx context.Context, p proto.BatchParams) (proto.ActionR
 			done++
 		}
 	}
+	s.putCursor(was)
 	stayed := brought && restore && !keep && s.giveBack(app, *front, before)
 
 	msg := fmt.Sprintf("%d of %d actions done in %s", done, len(steps), app.Name)
@@ -545,9 +569,9 @@ func (s *Service) unconfirmed(app proto.App, front *proto.App, action string) st
 	return msg + "it was brought to the front to show any dialog it holds, so read its state"
 }
 
-// inFront runs input with the app frontmost; keepFocus leaves it there
-// after, and stayed reports it left there.
-type inFront func(keepFocus bool, run func() error) (stayed bool, err error)
+// inFront runs the step's input with the app frontmost; its keepFocus
+// leaves it there after, and stayed reports it left there.
+type inFront func(st step) (stayed bool, err error)
 
 // perform runs the step, sending input that needs the app frontmost through
 // fg; stayed is fg's.
@@ -568,7 +592,7 @@ func (s *Service) perform(st step, fg inFront) (stayed bool, err error) {
 	if st.inputBackground {
 		return false, st.input()
 	}
-	return fg(st.keepFocus, st.input)
+	return fg(st)
 }
 
 // actionStep validates the params and resolves targets before anything is
@@ -620,7 +644,7 @@ func (s *Service) actionStep(app proto.App, p proto.ActionParams) (step, error) 
 		if err != nil {
 			return step{}, err
 		}
-		return step{input: func() error { return s.platform.Scroll(at, p.DX, p.DY) }}, nil
+		return step{input: func() error { return s.platform.Scroll(at, p.DX, p.DY) }, at: &at}, nil
 	case proto.ActionDrag:
 		from, err := s.target(p)
 		if err != nil {
@@ -633,7 +657,7 @@ func (s *Service) actionStep(app proto.App, p proto.ActionParams) (step, error) 
 		if err != nil {
 			return step{}, err
 		}
-		return step{input: func() error { return s.platform.Drag(from, to) }}, nil
+		return step{input: func() error { return s.platform.Drag(from, to) }, at: &from}, nil
 	case proto.ActionSetValue:
 		if p.Index == 0 {
 			return step{}, invalid("set_value needs an element index")
@@ -705,6 +729,7 @@ func (s *Service) typeStep(app proto.App, p proto.ActionParams) (step, error) {
 			}
 			return s.platform.Type(p.Text)
 		}
+		st.at = &at
 	}
 	return st, nil
 }
@@ -728,6 +753,7 @@ func (s *Service) clickStep(p proto.ActionParams) (step, error) {
 				return st, nil
 			}
 			st.input = func() error { return s.platform.Click(at, ButtonLeft, 1) }
+			st.at = &at
 			return st, nil
 		}
 	}
@@ -745,5 +771,6 @@ func (s *Service) clickStep(p proto.ActionParams) (step, error) {
 	return step{
 		input:     func() error { return s.platform.Click(at, button, count) },
 		keepFocus: button == ButtonRight,
+		at:        &at,
 	}, nil
 }

@@ -66,6 +66,9 @@ type Platform interface {
 	// UserIdle is how long ago the keyboard or mouse was last used,
 	// including by the platform's own input.
 	UserIdle() time.Duration
+	// MoveCursor puts the pointer at p without a mouse event and returns
+	// where it was.
+	MoveCursor(p Point) (was Point)
 	// The input below goes to the frontmost app, as the user's would.
 	Click(p Point, button Button, count int) error
 	Drag(from, to Point) error
