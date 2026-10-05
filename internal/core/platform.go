@@ -80,6 +80,8 @@ type Platform interface {
 	// with no error.
 	KeyTo(app proto.App, c Combo) error
 	TypeTo(app proto.App, text string) error
+	// ClickTo clicks inside app's windows without activating it first.
+	ClickTo(app proto.App, p Point, button Button, count int) error
 	Release(refs []uintptr)
 	Permissions() proto.Permissions
 	RequestPermissions() proto.Permissions

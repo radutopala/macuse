@@ -757,12 +757,22 @@ func (p *Platform) postTo(app proto.App) func(ev uintptr) {
 }
 
 func (p *Platform) mouse(typ uint32, at core.Point, button uint32, clickState int64) {
+	p.mouseVia(p.post, typ, at, button, clickState)
+}
+
+// mouseVia is mouse with the post function overridable, so a click can be
+// aimed at a specific app's pid instead of the frontmost one.
+func (p *Platform) mouseVia(post func(uintptr), typ uint32, at core.Point, button uint32, clickState int64) {
 	ev := p.l.CGEventCreateMouseEvent(0, typ, cgPoint{at.X, at.Y}, button)
 	if clickState > 0 {
 		p.l.CGEventSetIntegerValueField(ev, kCGMouseEventClickState, clickState)
 	}
-	p.post(ev)
+	post(ev)
 }
+
+// hitTestSettle gives the window server time to update its hit-test state
+// at the pointer's new location before a click lands there.
+const hitTestSettle = 8 * time.Millisecond
 
 // Click clicks count times at at.
 func (p *Platform) Click(at core.Point, button core.Button, count int) error {
@@ -772,9 +782,29 @@ func (p *Platform) Click(at core.Point, button core.Button, count int) error {
 			down, up, btn = kCGEventRightMouseDown, kCGEventRightMouseUp, kCGMouseButtonRight
 		}
 		p.mouse(kCGEventMouseMoved, at, kCGMouseButtonLeft, 0)
+		time.Sleep(hitTestSettle)
 		for i := 1; i <= count; i++ {
 			p.mouse(down, at, btn, int64(i))
 			p.mouse(up, at, btn, int64(i))
+		}
+	})
+	return nil
+}
+
+// ClickTo clicks count times at at inside app's windows without activating
+// it first, the mouse equivalent of TypeTo.
+func (p *Platform) ClickTo(app proto.App, at core.Point, button core.Button, count int) error {
+	post := p.postTo(app)
+	p.do(func() {
+		down, up, btn := uint32(kCGEventLeftMouseDown), uint32(kCGEventLeftMouseUp), uint32(kCGMouseButtonLeft)
+		if button == core.ButtonRight {
+			down, up, btn = kCGEventRightMouseDown, kCGEventRightMouseUp, kCGMouseButtonRight
+		}
+		p.mouseVia(post, kCGEventMouseMoved, at, kCGMouseButtonLeft, 0)
+		time.Sleep(hitTestSettle)
+		for i := 1; i <= count; i++ {
+			p.mouseVia(post, down, at, btn, int64(i))
+			p.mouseVia(post, up, at, btn, int64(i))
 		}
 	})
 	return nil

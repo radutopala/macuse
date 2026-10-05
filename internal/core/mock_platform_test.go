@@ -77,6 +77,10 @@ func (m *mockPlatform) KeyTo(app proto.App, c Combo) error { return m.Called(app
 
 func (m *mockPlatform) TypeTo(app proto.App, text string) error { return m.Called(app, text).Error(0) }
 
+func (m *mockPlatform) ClickTo(app proto.App, p Point, button Button, count int) error {
+	return m.Called(app, p, button, count).Error(0)
+}
+
 func (m *mockPlatform) Type(text string) error { return m.Called(text).Error(0) }
 
 func (m *mockPlatform) Release(refs []uintptr) { m.Called(refs) }

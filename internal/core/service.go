@@ -600,7 +600,7 @@ func (s *Service) perform(st step, fg inFront) (stayed bool, err error) {
 func (s *Service) actionStep(app proto.App, p proto.ActionParams) (step, error) {
 	switch p.Action {
 	case proto.ActionClick, proto.ActionDoubleClick, proto.ActionRightClick:
-		return s.clickStep(p)
+		return s.clickStep(app, p)
 	case proto.ActionType:
 		return s.typeStep(app, p)
 	case proto.ActionKey:
@@ -736,7 +736,7 @@ func (s *Service) typeStep(app proto.App, p proto.ActionParams) (step, error) {
 
 const axPress = "AXPress"
 
-func (s *Service) clickStep(p proto.ActionParams) (step, error) {
+func (s *Service) clickStep(app proto.App, p proto.ActionParams) (step, error) {
 	if p.Action == proto.ActionClick && p.Index > 0 {
 		el, err := s.element(p.BundleID, p.Index)
 		if err != nil {
@@ -744,7 +744,8 @@ func (s *Service) clickStep(p proto.ActionParams) (step, error) {
 		}
 		// Pressing through accessibility works even when the element is
 		// covered or off screen. Some elements list the press and refuse
-		// it; those get a click at their center.
+		// it; those get a click at their center, without the app coming
+		// forward.
 		if el.HasAction(axPress) {
 			st := step{background: func() error { return s.platform.Press(el.Node.Ref) }}
 			at, err := s.target(p)
@@ -752,7 +753,8 @@ func (s *Service) clickStep(p proto.ActionParams) (step, error) {
 				st.inputErr = err
 				return st, nil
 			}
-			st.input = func() error { return s.platform.Click(at, ButtonLeft, 1) }
+			st.input = func() error { return s.platform.ClickTo(app, at, ButtonLeft, 1) }
+			st.inputBackground = true
 			st.at = &at
 			return st, nil
 		}

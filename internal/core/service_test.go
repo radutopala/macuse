@@ -413,9 +413,9 @@ func (s *ServiceSuite) TestActions() {
 		{name: "click presses", p: proto.ActionParams{Action: proto.ActionClick, Index: 3}, expect: func() {
 			s.p.On("Press", uintptr(3)).Return(nil)
 		}},
-		{name: "click falls back to the center when the press is refused", p: proto.ActionParams{Action: proto.ActionClick, Index: 3}, focus: restore, at: &Point{}, expect: func() {
+		{name: "click falls back to the center when the press is refused", p: proto.ActionParams{Action: proto.ActionClick, Index: 3}, expect: func() {
 			s.p.On("Press", uintptr(3)).Return(unsupported)
-			s.p.On("Click", Point{}, ButtonLeft, 1).Return(nil)
+			s.p.On("ClickTo", textEdit, Point{}, ButtonLeft, 1).Return(nil)
 		}},
 		{name: "click without press uses the center", p: proto.ActionParams{Action: proto.ActionClick, Index: 2}, focus: restore, at: &center, expect: func() {
 			s.p.On("Click", center, ButtonLeft, 1).Return(nil)
@@ -698,10 +698,12 @@ func (s *ServiceSuite) TestPopoverPastTheWindowEdge() {
 		s.Run(tc.name, func() {
 			if tc.p.Index > 0 {
 				s.p.On("Press", uintptr(3)).Return(&proto.Error{Code: proto.CodeUnsupported, Message: "the element refused the press"}).Once()
+				s.p.On("ClickTo", textEdit, swatch, ButtonLeft, 1).Return(nil).Once()
+			} else {
+				s.foreground(true)
+				s.cursor(swatch)
+				s.p.On("Click", swatch, ButtonLeft, 1).Return(nil).Once()
 			}
-			s.foreground(true)
-			s.cursor(swatch)
-			s.p.On("Click", swatch, ButtonLeft, 1).Return(nil).Once()
 			var res proto.ActionResult
 			s.ok(s.act(tc.p), &res)
 			require.Equal(s.T(), "click done in TextEdit", res.Message)
