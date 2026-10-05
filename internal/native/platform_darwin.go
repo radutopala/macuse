@@ -893,18 +893,15 @@ func keyEvents(code uint16, mods core.Modifier) []keyEvent {
 	return events
 }
 
-// typeChunk is how many characters one synthetic key event carries; apps
-// drop longer strings. Some apps (Calculator) take only the first character
-// of an event posted to their process.
-const (
-	typeChunk           = 20
-	typeChunkBackground = 1
-)
+// typeChunk is how many characters one synthetic key event carries. Some
+// apps take only an event's first character: Calculator from an event
+// posted to its process, Blender even in front.
+const typeChunk = 1
 
 // Type sends text to the frontmost app as unicode key events, independent
 // of the keyboard layout.
 func (p *Platform) Type(text string) error {
-	p.typeText(text, typeChunk, p.post)
+	p.typeText(text, p.post)
 	return nil
 }
 
@@ -926,17 +923,17 @@ func (p *Platform) TypeTo(app proto.App, text string) error {
 	post := p.postTo(app)
 	first := string(runes[:1])
 	role, _ := p.focusedRoleValue(app)
-	p.typeText(first, typeChunkBackground, post)
+	p.typeText(first, post)
 	for waited := time.Duration(0); waited < editorWait; waited += editorPoll {
 		time.Sleep(editorPoll)
 		if r, v := p.focusedRoleValue(app); r != role {
 			if v == "" {
-				p.typeText(first, typeChunkBackground, post)
+				p.typeText(first, post)
 			}
 			break
 		}
 	}
-	p.typeText(string(runes[1:]), typeChunkBackground, post)
+	p.typeText(string(runes[1:]), post)
 	return nil
 }
 
@@ -958,9 +955,9 @@ func (p *Platform) focusedRoleValue(app proto.App) (role, value string) {
 // kVKReturn is the Return key's virtual key code.
 const kVKReturn = 36
 
-func (p *Platform) typeText(text string, chunk int, post func(ev uintptr)) {
+func (p *Platform) typeText(text string, post func(ev uintptr)) {
 	p.do(func() {
-		for _, c := range typeChunks(text, chunk) {
+		for _, c := range typeChunks(text, typeChunk) {
 			for _, down := range []bool{true, false} {
 				var ev uintptr
 				if c == nil {
