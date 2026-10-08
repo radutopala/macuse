@@ -156,7 +156,20 @@ func (a *app) root() *cobra.Command {
 	return root
 }
 
+// paths returns the files macuse keeps, without touching them. A client
+// that only reads the token may run where ~/.macuse isn't writable, such
+// as a container with the token mounted in.
 func (a *app) paths() (config.Paths, error) {
+	home, err := a.home()
+	if err != nil {
+		return config.Paths{}, err
+	}
+	return config.NewPaths(home), nil
+}
+
+// migratedPaths is paths, after the pending fs migrations, for the commands
+// that own the files on the Mac.
+func (a *app) migratedPaths() (config.Paths, error) {
 	home, err := a.home()
 	if err != nil {
 		return config.Paths{}, err
@@ -169,7 +182,7 @@ func (a *app) paths() (config.Paths, error) {
 }
 
 func (a *app) printToken() error {
-	p, err := a.paths()
+	p, err := a.migratedPaths()
 	if err != nil {
 		return err
 	}
@@ -209,7 +222,7 @@ func (a *app) serviceCommand() *cobra.Command {
 	}
 	withAgent := func(f func(launchagent.Agent) error) func(*cobra.Command, []string) error {
 		return func(*cobra.Command, []string) error {
-			p, err := a.paths()
+			p, err := a.migratedPaths()
 			if err != nil {
 				return err
 			}

@@ -79,6 +79,19 @@ func (s *AppSuite) TestPathsMigrationFails() {
 	require.Contains(s.T(), s.stderr.String(), "fs_migrations")
 }
 
+// A client only reads the token, so it runs no migrations, which can't
+// write to a ~/.macuse mounted into a container.
+func (s *AppSuite) TestClientReadOnlyDir() {
+	s.writeToken("tok")
+	require.NoError(s.T(), os.Chmod(s.paths.Dir, 0o500))
+	s.T().Cleanup(func() { _ = os.Chmod(s.paths.Dir, 0o700) })
+
+	c, err := s.app.client(clientFlags{}, "x")
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "tok", c.Token)
+	require.NoFileExists(s.T(), filepath.Join(s.paths.Dir, "fs_migrations"))
+}
+
 func (s *AppSuite) run(args ...string) int {
 	return s.app.run(context.Background(), args)
 }

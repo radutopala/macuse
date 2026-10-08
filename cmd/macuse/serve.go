@@ -27,7 +27,7 @@ import (
 )
 
 func (a *app) serve(ctx context.Context) error {
-	p, err := a.paths()
+	p, err := a.migratedPaths()
 	if err != nil {
 		return err
 	}
