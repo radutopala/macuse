@@ -194,6 +194,8 @@ Errors are `{"error": {"code", "message"}}`, with codes such as `denied`,
 ```sh
 make build           # bin/macuse for this machine
 make app             # universal dist/MacUse.app (unsigned)
+make linux           # Linux MCP client tarballs in dist/
+make dist            # notarized zip and dmg, Linux tarballs, checksums
 make install         # signed app in /Applications, macuse linked into $GOPATH/bin
 make restart         # install, then (re)start it as a login service
 make uninstall       # stop it and remove the app and the link
@@ -201,6 +203,10 @@ make test            # tests
 make coverage-check  # 100% coverage, in Docker
 make lint            # golangci-lint for Linux and macOS, in Docker
 ```
+
+`make dist` notarizes with `NOTARY_PROFILE=<profile>`, a profile saved by
+`xcrun notarytool store-credentials`, or with `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` set.
 
 macOS ties the privacy grants to the app's signature. A build you sign
 yourself needs its own grants.

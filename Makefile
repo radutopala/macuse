@@ -1,4 +1,4 @@
-.PHONY: help build install uninstall restart test coverage-check _coverage-check-run lint lint-darwin icon app sign notarize dmg dist clean
+.PHONY: help build install uninstall restart test coverage-check _coverage-check-run lint lint-darwin icon app sign notary-check notarize dmg linux dist clean
 .DEFAULT_GOAL := help
 
 help: ## Show available targets
@@ -15,6 +15,14 @@ BUNDLE      := MacUse.app
 APP         := $(DIST)/$(BUNDLE)
 # Signing: a "Developer ID Application" identity in the keychain.
 SIGN_IDENTITY ?= Developer ID Application
+# Notarizing: a notarytool keychain profile (xcrun notarytool store-credentials),
+# or else APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID as in CI.
+NOTARY_PROFILE ?=
+ifneq ($(NOTARY_PROFILE),)
+NOTARY_AUTH := --keychain-profile "$(NOTARY_PROFILE)"
+else
+NOTARY_AUTH := --apple-id "$$APPLE_ID" --password "$$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$$APPLE_TEAM_ID"
+endif
 # Local install: the app, and a CLI link on the PATH like go install's.
 INSTALL_DIR ?= /Applications
 BIN_DIR     ?= $(shell go env GOPATH)/bin
@@ -100,9 +108,14 @@ sign: app ## Sign the app with the hardened runtime
 	codesign --force --options runtime --timestamp --sign "$(SIGN_IDENTITY)" $(APP)
 	codesign --verify --strict --verbose=2 $(APP)
 
-notarize: sign ## Notarize and staple the app (needs APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)
+# Fails before the build, not after the signing.
+notary-check:
+	@[ -n "$(NOTARY_PROFILE)" ] || [ -n "$$APPLE_ID" -a -n "$$APPLE_APP_SPECIFIC_PASSWORD" -a -n "$$APPLE_TEAM_ID" ] || \
+		{ echo "Notarizing needs NOTARY_PROFILE=<notarytool keychain profile>, or APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID"; exit 1; }
+
+notarize: notary-check sign ## Notarize and staple the app (needs NOTARY_PROFILE, or APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)
 	ditto -c -k --keepParent $(APP) $(DIST)/notarize.zip
-	xcrun notarytool submit $(DIST)/notarize.zip --apple-id "$$APPLE_ID" --password "$$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$$APPLE_TEAM_ID" --wait
+	xcrun notarytool submit $(DIST)/notarize.zip $(NOTARY_AUTH) --wait
 	rm $(DIST)/notarize.zip
 	xcrun stapler staple $(APP)
 	spctl --assess --type execute --verbose $(APP)
@@ -118,17 +131,19 @@ dmg: notarize ## Signed, notarized and stapled disk image of the app
 	hdiutil create -volname MacUse -srcfolder $(DIST)/dmg -fs HFS+ -format UDZO -ov $(DMG)
 	rm -rf $(DIST)/dmg
 	codesign --force --timestamp --sign "$(SIGN_IDENTITY)" $(DMG)
-	xcrun notarytool submit $(DMG) --apple-id "$$APPLE_ID" --password "$$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$$APPLE_TEAM_ID" --wait
+	xcrun notarytool submit $(DMG) $(NOTARY_AUTH) --wait
 	xcrun stapler staple $(DMG)
 	spctl --assess --type open --context context:primary-signature --verbose $(DMG)
 
-dist: dmg ## Notarized app zip and disk image, Linux MCP client binaries, and checksums
-	cd $(DIST) && ditto -c -k --keepParent $(BUNDLE) macuse_$(APP_VERSION)_macos.zip
+linux: ## Linux MCP client binaries, dist/macuse_<version>_linux_<arch>.tar.gz
 	for arch in amd64 arm64; do \
 		mkdir -p $(DIST)/linux-$$arch && cp LICENSE $(DIST)/linux-$$arch/ && \
 		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o $(DIST)/linux-$$arch/macuse ./cmd/macuse && \
 		tar -czf $(DIST)/macuse_$(APP_VERSION)_linux_$$arch.tar.gz -C $(DIST)/linux-$$arch macuse LICENSE || exit 1; \
 	done
+
+dist: linux dmg ## Notarized app zip and disk image, Linux MCP client binaries, and checksums
+	cd $(DIST) && ditto -c -k --keepParent $(BUNDLE) macuse_$(APP_VERSION)_macos.zip
 	cd $(DIST) && shasum -a 256 macuse_$(APP_VERSION)_* > checksums.txt
 
 clean: ## Remove build output
