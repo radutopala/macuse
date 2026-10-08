@@ -40,13 +40,14 @@ install: sign ## Install the signed app to INSTALL_DIR and link the CLI into BIN
 uninstall: ## Stop the service, then remove the app and the CLI link (keeps settings and approvals)
 	@# [m] keeps the pattern from matching this recipe's own shell.
 	@[ ! -x $(INSTALLED) ] || $(INSTALLED) service uninstall
-	@pkill -TERM -i -f '$(INSTALL_DIR)/$(BUNDLE)/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
+	@pkill -TERM -i -f '$(BUNDLE)/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
 	rm -rf $(INSTALL_DIR)/$(BUNDLE)
 	rm -f $(BIN_DIR)/macuse
 
 restart: install ## Install, then stop and start the server
-	@# A copy opened from Finder runs without arguments; quit it so the service takes over.
-	@pkill -TERM -i -f '$(INSTALL_DIR)/$(BUNDLE)/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
+	@# A copy opened from Finder, or from dist/, runs without arguments; quit
+	@# it so the service takes over, as it can't listen while that one does.
+	@pkill -TERM -i -f '$(BUNDLE)/Contents/MacOS/[m]acuse$$' && echo "Quit the running macuse" || true
 	$(INSTALLED) service install
 
 test: ## Run the tests
