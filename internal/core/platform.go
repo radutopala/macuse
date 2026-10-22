@@ -61,7 +61,8 @@ type Platform interface {
 	// InsertText focuses the element and inserts text at its selection, or
 	// the app's focused element's when ref is 0, without the app being
 	// frontmost. It fails with proto.CodeUnsupported when the element
-	// doesn't take it, leaving the element focused for keys.
+	// doesn't take it, leaving the element focused for keys. A one-line
+	// field takes each line break as Return.
 	InsertText(app proto.App, ref uintptr, text string) error
 	// UserIdle is how long ago the keyboard or mouse was last used,
 	// including by the platform's own input.

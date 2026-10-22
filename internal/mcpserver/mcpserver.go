@@ -79,7 +79,7 @@ func (s *Server) register() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "type",
-		Description: "Type text into an app: at the end of the element at index, or else at the cursor of the app's focused element, replacing its selection as typing would. The app stays in the background; text an element doesn't take through accessibility goes as keys to the focused element, which may ignore them." + foregroundNote + indexNote,
+		Description: "Type text into an app: at the end of the element at index, or else at the cursor of the app's focused element, replacing its selection as typing would. A line break presses Return, so a trailing \\n submits a one-line field such as an address bar. The app stays in the background; text an element doesn't take through accessibility goes as keys to the focused element, which may ignore them." + foregroundNote + indexNote,
 	}, s.handleType)
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
