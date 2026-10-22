@@ -117,3 +117,21 @@ func (s *DarwinSuite) TestTypeChunksPressReturnForLineBreaks() {
 		})
 	}
 }
+
+func (s *DarwinSuite) TestLines() {
+	tests := []struct {
+		name string
+		text string
+		want []string
+	}{
+		{"one line", "abc", []string{"abc"}},
+		{"trailing break", "url\n", []string{"url", ""}},
+		{"crlf and cr", "a\r\nb\rc", []string{"a", "b", "c"}},
+		{"only a break", "\n", []string{"", ""}},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			require.Equal(s.T(), tt.want, lines(tt.text))
+		})
+	}
+}

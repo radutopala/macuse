@@ -632,6 +632,11 @@ var errNoInsert = &proto.Error{Code: proto.CodeUnsupported, Message: "the elemen
 // replacing its selection, as typing would. An insert that leaves the value
 // as it was counts as unsupported, unless it replaced a selection with the
 // same text.
+//
+// A single-line field takes each line break as Return, posted to the app,
+// as typing would: it can't hold one. After each insert its value is set
+// to what it now reads, as some fields (Chrome's address bar) show an
+// inserted text without taking it in, so Return would submit the old one.
 func (p *Platform) InsertText(app proto.App, ref uintptr, text string) (err error) {
 	p.do(func() {
 		if err = p.requireTrusted(); err != nil {
@@ -660,24 +665,68 @@ func (p *Platform) InsertText(app proto.App, ref uintptr, text string) (err erro
 		if ref != 0 {
 			p.moveCursorToEnd(el)
 		}
-		before, selected := p.stringAttr(el, "AXValue"), p.stringAttr(el, "AXSelectedText")
-		v := p.l.cfString(text)
-		defer p.l.CFRelease(v)
-		switch code := p.l.AXUIElementSetAttributeValue(el, p.attr("AXSelectedText"), v); code {
-		case kAXErrorSuccess:
-			// Some elements take the insert and drop it (Chrome's, with web
-			// accessibility off), so an unchanged value means keys instead;
-			// replacing a selection with the same text leaves it unchanged too.
-			if selected != text && p.stringAttr(el, "AXValue") == before {
-				err = errNoInsert
+		if !p.singleLine(el) {
+			err = p.insert(el, text)
+			return
+		}
+		post := p.postTo(app)
+		for i, line := range lines(text) {
+			if i > 0 {
+				for _, down := range []bool{true, false} {
+					ev := p.l.CGEventCreateKeyboardEvent(0, kVKReturn, down)
+					p.l.CGEventSetFlags(ev, 0)
+					post(ev)
+				}
 			}
-		case kAXErrorAttrUnsupported:
-			err = errNoInsert
-		default:
-			err = axError(code, "insert text")
+			if line == "" {
+				continue
+			}
+			if err = p.insert(el, line); err != nil {
+				return
+			}
+			p.commitValue(el)
 		}
 	})
 	return err
+}
+
+// insert replaces the element's selection with text.
+func (p *Platform) insert(el uintptr, text string) error {
+	before, selected := p.stringAttr(el, "AXValue"), p.stringAttr(el, "AXSelectedText")
+	v := p.l.cfString(text)
+	defer p.l.CFRelease(v)
+	switch code := p.l.AXUIElementSetAttributeValue(el, p.attr("AXSelectedText"), v); code {
+	case kAXErrorSuccess:
+		// Some elements take the insert and drop it (Chrome's, with web
+		// accessibility off), so an unchanged value means keys instead;
+		// replacing a selection with the same text leaves it unchanged too.
+		if selected != text && p.stringAttr(el, "AXValue") == before {
+			return errNoInsert
+		}
+		return nil
+	case kAXErrorAttrUnsupported:
+		return errNoInsert
+	default:
+		return axError(code, "insert text")
+	}
+}
+
+// singleLine reports whether the element is a one-line text field whose
+// value can be read back; secure fields read as empty.
+func (p *Platform) singleLine(el uintptr) bool {
+	return p.stringAttr(el, "AXRole") == "AXTextField" && p.stringAttr(el, "AXSubrole") != "AXSecureTextField"
+}
+
+// commitValue sets the element's value to what it reads, where it can be
+// set, so the app takes in text it only shows.
+func (p *Platform) commitValue(el uintptr) {
+	var settable bool
+	if p.l.AXUIElementIsAttributeSettable(el, p.attr("AXValue"), &settable) != kAXErrorSuccess || !settable {
+		return
+	}
+	v := p.l.cfString(p.stringAttr(el, "AXValue"))
+	p.l.AXUIElementSetAttributeValue(el, p.attr("AXValue"), v)
+	p.l.CFRelease(v)
 }
 
 // moveCursorToEnd collapses the element's selection to the end of its
@@ -1012,10 +1061,8 @@ func (p *Platform) typeText(text string, post func(ev uintptr)) {
 // most chunk characters each. A line break is a nil chunk, pressed as
 // Return: editors drop a newline that comes as a character.
 func typeChunks(text string, chunk int) [][]uint16 {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	text = strings.ReplaceAll(text, "\r", "\n")
 	var chunks [][]uint16
-	for i, line := range strings.Split(text, "\n") {
+	for i, line := range lines(text) {
 		if i > 0 {
 			chunks = append(chunks, nil)
 		}
@@ -1025,6 +1072,12 @@ func typeChunks(text string, chunk int) [][]uint16 {
 		}
 	}
 	return chunks
+}
+
+// lines splits text at its line breaks, whichever convention it uses.
+func lines(text string) []string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	return strings.Split(strings.ReplaceAll(text, "\r", "\n"), "\n")
 }
 
 // Release drops the retained element handles.
