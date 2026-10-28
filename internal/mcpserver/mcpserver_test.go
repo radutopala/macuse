@@ -104,7 +104,7 @@ func (s *MCPSuite) TestTools() {
 	for _, t := range res.Tools {
 		names = append(names, t.Name)
 	}
-	require.ElementsMatch(s.T(), []string{"list_apps", "start_app", "get_state", "click", "type", "press_key", "scroll", "drag", "set_value", "batch"}, names)
+	require.ElementsMatch(s.T(), []string{"list_apps", "start_app", "get_state", "click", "hover", "type", "press_key", "scroll", "drag", "set_value", "batch"}, names)
 }
 
 func (s *MCPSuite) TestListApps() {
@@ -177,6 +177,8 @@ func (s *MCPSuite) TestActions() {
 		{"click", "click", map[string]any{"app": "a", "index": 3}, proto.ActionParams{BundleID: "a", Action: proto.ActionClick, Index: 3}},
 		{"left double", "click", map[string]any{"app": "a", "button": "left", "double": true}, proto.ActionParams{BundleID: "a", Action: proto.ActionDoubleClick}},
 		{"right at point", "click", map[string]any{"app": "a", "button": "right", "x": 1.5, "y": 2}, proto.ActionParams{BundleID: "a", Action: proto.ActionRightClick, X: ptr(1.5), Y: ptr(2)}},
+		{"hover", "hover", map[string]any{"app": "a", "index": 3}, proto.ActionParams{BundleID: "a", Action: proto.ActionHover, Index: 3}},
+		{"hover at point", "hover", map[string]any{"app": "a", "x": 1.5, "y": 2, "dwell_ms": 900, "capture": "both"}, proto.ActionParams{BundleID: "a", Action: proto.ActionHover, X: ptr(1.5), Y: ptr(2), DwellMS: 900, Capture: proto.CaptureBoth}},
 		{"type", "type", map[string]any{"app": "a", "text": "hi", "index": 2, "foreground": true}, proto.ActionParams{BundleID: "a", Action: proto.ActionType, Text: "hi", Index: 2, Foreground: true}},
 		{"press_key", "press_key", map[string]any{"app": "a", "keys": "cmd+s"}, proto.ActionParams{BundleID: "a", Action: proto.ActionKey, Keys: "cmd+s"}},
 		{"scroll", "scroll", map[string]any{"app": "a", "dy": 3, "x": 4, "y": 5}, proto.ActionParams{BundleID: "a", Action: proto.ActionScroll, DY: 3, X: ptr(4), Y: ptr(5)}},
@@ -194,6 +196,26 @@ func (s *MCPSuite) TestActions() {
 	require.Equal(s.T(), "Done.", text(s.call("click", map[string]any{"app": "a", "index": 1})))
 	s.api.On("Action", anyCtx, mock.Anything).Return(proto.ActionResult{}, errors.New("element_not_found: no [1]")).Once()
 	require.True(s.T(), s.call("click", map[string]any{"app": "a", "index": 1}).IsError)
+}
+
+func (s *MCPSuite) TestHoverReturnsWhatShowed() {
+	st := proto.State{
+		App: proto.App{Name: "Notes", BundleID: "com.apple.Notes"}, Window: "Doc", Elements: 2,
+		Tree:  "[1] AXButton \"Share\"\n[2] AXToolTip \"Share this note\"",
+		Image: []byte("jpeg"), MIMEType: "image/jpeg", Width: 200, Height: 100,
+	}
+	s.api.On("Action", agent("test-agent"), proto.ActionParams{BundleID: "a", Action: proto.ActionHover, Index: 1}).
+		Return(proto.ActionResult{Message: "hover done in Notes", State: &st}, nil).Once()
+	res := s.call("hover", map[string]any{"app": "a", "index": 1})
+	require.False(s.T(), res.IsError)
+	require.Len(s.T(), res.Content, 3)
+	require.Equal(s.T(), "hover done in Notes", res.Content[0].(*mcp.TextContent).Text)
+	require.Contains(s.T(), res.Content[1].(*mcp.TextContent).Text, "Screenshot: 200x100 px")
+	require.Contains(s.T(), res.Content[1].(*mcp.TextContent).Text, `[2] AXToolTip "Share this note"`)
+	img, ok := res.Content[2].(*mcp.ImageContent)
+	require.True(s.T(), ok)
+	require.Equal(s.T(), []byte("jpeg"), img.Data)
+	require.Equal(s.T(), "image/jpeg", img.MIMEType)
 }
 
 func (s *MCPSuite) TestClickBadButtons() {
@@ -241,7 +263,8 @@ func (s *MCPSuite) TestBatchBadActions() {
 		action map[string]any
 		want   string
 	}{
-		{"unknown", map[string]any{"action": "hover"}, `action 2: unknown action "hover"; use click, type, press_key, scroll, drag or set_value`},
+		{"unknown", map[string]any{"action": "dance"}, `action 2: unknown action "dance"; use click, type, press_key, scroll, drag or set_value`},
+		{"hover", map[string]any{"action": "hover", "index": 1}, "action 2: hover reads while the pointer is over its target, so call the hover tool on its own"},
 		{"bad button", map[string]any{"action": "click", "button": "right", "double": true}, "action 2: double is only for the left button"},
 	}
 	for _, tt := range tests {

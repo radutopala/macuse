@@ -296,6 +296,12 @@ func (s *Service) startApp(p proto.StartAppParams) (proto.App, error) {
 }
 
 func (s *Service) getState(p proto.GetStateParams) (proto.State, error) {
+	return s.readState(p, false)
+}
+
+// readState reads the app's window. With fronted the app is already
+// frontmost, so a screenshot of the screen needs no bringing forward.
+func (s *Service) readState(p proto.GetStateParams, fronted bool) (proto.State, error) {
 	capture := p.Capture
 	if capture == "" {
 		capture = proto.CaptureText
@@ -340,7 +346,7 @@ func (s *Service) getState(p proto.GetStateParams) (proto.State, error) {
 		// clicked.
 		win.Frame = snap.frame
 		shot := func() error { return s.screenshot(&state, snap, win, p.MaxImageEdge) }
-		if win.ID == 0 {
+		if win.ID == 0 && !fronted {
 			// Without the window's id only the screen can be captured, so
 			// the window must be on top.
 			_, err = s.foreground(app, front, true, nil, shot)
@@ -460,6 +466,9 @@ func (s *Service) action(p proto.ActionParams) (proto.ActionResult, error) {
 	if err != nil {
 		return proto.ActionResult{}, err
 	}
+	if p.Action == proto.ActionHover {
+		return s.hover(app, front, p)
+	}
 	st, err := s.actionStep(app, p)
 	if err != nil {
 		return proto.ActionResult{}, err
@@ -479,6 +488,57 @@ func (s *Service) action(p proto.ActionParams) (proto.ActionResult, error) {
 		msg += stayedNote
 	}
 	return proto.ActionResult{Message: msg}, nil
+}
+
+// hover brings app forward once the user pauses, rests the pointer on the
+// target for the dwell, reads the window while it's still there, then puts
+// the pointer and the focus back. The pointer has to be the real one: what
+// shows on hover reads it, which input posted to the app's process doesn't
+// move. The app isn't left in front for a window the hover opened, as a
+// tooltip closes with the pointer.
+func (s *Service) hover(app proto.App, front *proto.App, p proto.ActionParams) (proto.ActionResult, error) {
+	capture := p.Capture
+	if capture == "" {
+		capture = proto.CaptureImage
+	}
+	if capture != proto.CaptureText && capture != proto.CaptureImage && capture != proto.CaptureBoth {
+		return proto.ActionResult{}, invalid("capture must be text, image or both")
+	}
+	dwell := p.DwellMS
+	if dwell < 0 || dwell > proto.MaxDwellMS {
+		return proto.ActionResult{}, invalid("dwell_ms must be between 0 and %d", proto.MaxDwellMS)
+	}
+	if dwell == 0 {
+		dwell = proto.DefaultDwellMS
+	}
+	at, err := s.target(p)
+	if err != nil {
+		return proto.ActionResult{}, err
+	}
+
+	was, err := s.bring(app, &at)
+	if err != nil {
+		s.putCursor(was)
+		return proto.ActionResult{}, err
+	}
+	var state proto.State
+	err = s.platform.Hover(at)
+	if err == nil {
+		s.sleep(time.Duration(dwell) * time.Millisecond)
+		state, err = s.readState(proto.GetStateParams{BundleID: p.BundleID, Capture: capture}, true)
+	}
+	s.putCursor(was)
+	if front != nil && front.PID != app.PID {
+		// Best effort: the hover itself went through.
+		_ = s.platform.Activate(*front)
+	}
+	if err != nil {
+		return proto.ActionResult{}, err
+	}
+	return proto.ActionResult{
+		Message: fmt.Sprintf("hover done in %s; this is what showed after %d ms with the pointer over the target", app.Name, dwell),
+		State:   &state,
+	}, nil
 }
 
 // stayedNote tells the agent why the app was left in front.
@@ -601,6 +661,8 @@ func (s *Service) actionStep(app proto.App, p proto.ActionParams) (step, error) 
 	switch p.Action {
 	case proto.ActionClick, proto.ActionDoubleClick, proto.ActionRightClick:
 		return s.clickStep(app, p)
+	case proto.ActionHover:
+		return step{}, invalid("hover reads while the pointer is over its target, so it can't run in a batch; call it on its own")
 	case proto.ActionType:
 		return s.typeStep(app, p)
 	case proto.ActionKey:

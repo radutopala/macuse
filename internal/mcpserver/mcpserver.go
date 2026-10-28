@@ -78,6 +78,11 @@ func (s *Server) register() {
 	}, s.handleClick)
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "hover",
+		Description: "Rest the pointer on an element by index, or a point by x/y, for dwell_ms (default 600, so tooltip delays fire) and return what the window shows then: a screenshot by default, with capture text or both for the element tree too. Use it to see what appears only on hover: tooltips, hover cards, menus that open on mouse-over, buttons that show on hover. It presses nothing. The pointer is the real one, so the app is brought forward once the user stops typing, then the pointer and the focus go back and the hover UI closes; read what you need from the result. A tree read this way replaces the last get_state." + indexNote,
+	}, s.handleHover)
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "type",
 		Description: "Type text into an app: at the end of the element at index, or else at the cursor of the app's focused element, replacing its selection as typing would. A line break presses Return, so a trailing \\n submits a one-line field such as an address bar. The app stays in the background; text an element doesn't take through accessibility goes as keys to the focused element, which may ignore them." + foregroundNote + indexNote,
 	}, s.handleType)
@@ -127,6 +132,15 @@ type clickInput struct {
 	Y      *float64 `json:"y,omitempty" jsonschema:"Pixels from the screenshot's top edge, when not clicking by index"`
 	Button string   `json:"button,omitempty" jsonschema:"left (default) or right"`
 	Double bool     `json:"double,omitempty" jsonschema:"Double-click (left button only)"`
+}
+
+type hoverInput struct {
+	App     string   `json:"app" jsonschema:"The app's bundle id"`
+	Index   int      `json:"index,omitempty" jsonschema:"The element's [N] from the last get_state"`
+	X       *float64 `json:"x,omitempty" jsonschema:"Pixels from the screenshot's left edge, when not hovering by index"`
+	Y       *float64 `json:"y,omitempty" jsonschema:"Pixels from the screenshot's top edge, when not hovering by index"`
+	DwellMS int      `json:"dwell_ms,omitempty" jsonschema:"Milliseconds to wait with the pointer over the target before reading (default 600, at most 10000)"`
+	Capture string   `json:"capture,omitempty" jsonschema:"image (default), text (the tree only) or both"`
 }
 
 type typeInput struct {
@@ -243,6 +257,11 @@ func (s *Server) handleGetState(ctx context.Context, req *mcp.CallToolRequest, i
 		return errorResult(err.Error()), nil, nil
 	}
 
+	return stateResult(st), nil, nil
+}
+
+// stateResult renders a window state as text, with its screenshot if any.
+func stateResult(st proto.State) *mcp.CallToolResult {
 	var b strings.Builder
 	fmt.Fprintf(&b, "App: %s (%s)\nWindow: %q\nElements: %d\n", st.App.Name, st.App.BundleID, st.Window, st.Elements)
 	if st.Truncated {
@@ -263,7 +282,7 @@ func (s *Server) handleGetState(ctx context.Context, req *mcp.CallToolRequest, i
 		}
 		res.Content = append(res.Content, &mcp.ImageContent{Data: st.Image, MIMEType: mime})
 	}
-	return res, nil, nil
+	return res
 }
 
 func (s *Server) handleClick(ctx context.Context, req *mcp.CallToolRequest, in clickInput) (*mcp.CallToolResult, any, error) {
@@ -273,6 +292,11 @@ func (s *Server) handleClick(ctx context.Context, req *mcp.CallToolRequest, in c
 		return errorResult(err.Error()), nil, nil
 	}
 	return s.action(ctx, req, proto.ActionParams{BundleID: in.App, Action: action, Index: in.Index, X: in.X, Y: in.Y})
+}
+
+func (s *Server) handleHover(ctx context.Context, req *mcp.CallToolRequest, in hoverInput) (*mcp.CallToolResult, any, error) {
+	s.logger.Info("mcp tool call", "tool", "hover", "app", in.App, "index", in.Index, "dwell_ms", in.DwellMS)
+	return s.action(ctx, req, proto.ActionParams{BundleID: in.App, Action: proto.ActionHover, Index: in.Index, X: in.X, Y: in.Y, DwellMS: in.DwellMS, Capture: in.Capture})
 }
 
 func (s *Server) handleType(ctx context.Context, req *mcp.CallToolRequest, in typeInput) (*mcp.CallToolResult, any, error) {
@@ -331,6 +355,9 @@ func (s *Server) handleBatch(ctx context.Context, req *mcp.CallToolRequest, in b
 	actions := make([]proto.ActionParams, len(in.Actions))
 	for i, a := range in.Actions {
 		action, ok := batchActions[a.Action]
+		if a.Action == "hover" {
+			return errorResult(fmt.Sprintf("action %d: hover reads while the pointer is over its target, so call the hover tool on its own", i+1)), nil, nil
+		}
 		if a.Action == "click" {
 			var err error
 			if action, err = clickAction(a.Button, a.Double); err != nil {
@@ -357,8 +384,13 @@ func (s *Server) action(ctx context.Context, req *mcp.CallToolRequest, p proto.A
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
-	if res.Message == "" {
-		return textResult("Done."), nil, nil
+	msg := res.Message
+	if msg == "" {
+		msg = "Done."
 	}
-	return textResult(res.Message), nil, nil
+	out := textResult(msg)
+	if res.State != nil {
+		out.Content = append(out.Content, stateResult(*res.State).Content...)
+	}
+	return out, nil, nil
 }

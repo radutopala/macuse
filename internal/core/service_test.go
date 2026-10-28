@@ -775,6 +775,227 @@ func (s *ServiceSuite) TestPointerWaitsWhereTheClickLands() {
 	}, calls)
 }
 
+// hovering expects a hover at at: the app brought forward once the user is
+// idle, the window read while the pointer is there, then the pointer put
+// back and, when restore is set, the focus given back to Finder. image is
+// whether the window is captured.
+func (s *ServiceSuite) hovering(at Point, image, restore bool) {
+	s.p.On("UserIdle").Return(time.Hour).Once()
+	s.cursor(at)
+	s.p.On("Activate", textEdit).Return(nil).Once()
+	s.p.On("Frontmost", textEdit).Return(true).Once()
+	s.p.On("Hover", at).Return(nil).Once()
+	s.hoverRead(testWin, image)
+	if restore {
+		s.p.On("Activate", finder).Return(nil).Once()
+	}
+}
+
+// hoverRead expects the window read a hover makes, replacing the snapshot
+// the test took with read.
+func (s *ServiceSuite) hoverRead(win Window, image bool) {
+	s.p.On("FocusedWindow", textEdit).Return(win, nil).Once()
+	s.p.On("Release", []uintptr{win.Ref}).Once()
+	s.p.On("Tree", win, DefaultLimits).Return(sampleTree(), false, nil).Once()
+	s.p.On("Release", []uintptr{1, 2, 3, 4}).Once()
+	if image {
+		s.p.On("Capture", win).Return(solid(200, 100), nil).Once()
+	}
+}
+
+// hoverCalls lists the calls that show the order a hover works in.
+func (s *ServiceSuite) hoverCalls() []string {
+	var calls []string
+	for _, c := range s.p.Calls {
+		switch c.Method {
+		case "MoveCursor", "Hover", "Tree", "Capture":
+			calls = append(calls, c.Method)
+		case "Activate":
+			calls = append(calls, "Activate "+c.Arguments[0].(proto.App).Name)
+		}
+	}
+	return calls
+}
+
+func (s *ServiceSuite) TestHover() {
+	tests := []struct {
+		name    string
+		p       proto.ActionParams
+		at      Point
+		image   bool
+		dwell   time.Duration
+		message string
+	}{
+		{"element", proto.ActionParams{Action: proto.ActionHover, Index: 2}, Point{175, 80}, true, 600 * time.Millisecond,
+			"hover done in TextEdit; this is what showed after 600 ms with the pointer over the target"},
+		{"screenshot point", proto.ActionParams{Action: proto.ActionHover, X: ptr(20), Y: ptr(10), DwellMS: 1200, Capture: proto.CaptureBoth}, Point{110, 55}, true, 1200 * time.Millisecond,
+			"hover done in TextEdit; this is what showed after 1200 ms with the pointer over the target"},
+		{"text only", proto.ActionParams{Action: proto.ActionHover, Index: 2, Capture: proto.CaptureText}, Point{175, 80}, false, 600 * time.Millisecond,
+			"hover done in TextEdit; this is what showed after 600 ms with the pointer over the target"},
+	}
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+			s.read()
+			before := len(s.hoverCalls())
+			s.hovering(tc.at, tc.image, true)
+			var res proto.ActionResult
+			s.ok(s.act(tc.p), &res)
+			require.Equal(s.T(), tc.message, res.Message)
+			require.NotNil(s.T(), res.State)
+			require.Equal(s.T(), textEdit.BundleID, res.State.App.BundleID)
+			require.Equal(s.T(), tc.image, len(res.State.Image) > 0)
+			require.Equal(s.T(), tc.p.Capture != proto.CaptureImage && tc.p.Capture != "", res.State.Tree != "")
+			require.Equal(s.T(), []time.Duration{tc.dwell}, s.sleeps)
+			// The window is read with the pointer still over the target.
+			want := []string{"MoveCursor", "Activate TextEdit", "Hover", "Tree"}
+			if tc.image {
+				want = append(want, "Capture")
+			}
+			want = append(want, "MoveCursor", "Activate Finder")
+			require.Equal(s.T(), want, s.hoverCalls()[before:])
+			s.p.AssertExpectations(s.T())
+		})
+	}
+}
+
+func (s *ServiceSuite) TestHoverReplacesTheSnapshot() {
+	s.read()
+	s.hovering(Point{175, 80}, true, true)
+	var res proto.ActionResult
+	s.ok(s.act(proto.ActionParams{Action: proto.ActionHover, Index: 2}), &res)
+	// Screenshot pixels still map to the screen through the new snapshot.
+	s.p.On("Click", Point{110, 55}, ButtonLeft, 1).Return(nil).Once()
+	s.foreground(true)
+	s.cursor(Point{110, 55})
+	s.ok(s.act(proto.ActionParams{Action: proto.ActionClick, X: ptr(20), Y: ptr(10)}), &res)
+}
+
+func (s *ServiceSuite) TestHoverInAnAppAlreadyInFront() {
+	front := textEdit
+	front.Active = true
+	s.p.On("ListApps").Return([]proto.App{finder, front}, nil)
+	s.p.On("FocusedWindow", front).Return(testWin, nil).Twice()
+	s.p.On("Release", []uintptr{9}).Twice()
+	s.p.On("Tree", testWin, DefaultLimits).Return(sampleTree(), false, nil).Twice()
+	s.p.On("Capture", testWin).Return(solid(200, 100), nil).Twice()
+	s.p.On("Release", []uintptr{1, 2, 3, 4}).Once()
+	var st proto.State
+	s.ok(s.call(proto.MethodGetState, proto.GetStateParams{BundleID: textEdit.BundleID, Capture: proto.CaptureBoth}), &st)
+
+	s.p.On("UserIdle").Return(time.Hour).Once()
+	s.cursor(Point{175, 80})
+	s.p.On("Activate", front).Return(nil).Once()
+	s.p.On("Frontmost", front).Return(true).Once()
+	s.p.On("Hover", Point{175, 80}).Return(nil).Once()
+	var res proto.ActionResult
+	s.ok(s.act(proto.ActionParams{Action: proto.ActionHover, Index: 2}), &res)
+	s.p.AssertNotCalled(s.T(), "Activate", finder)
+}
+
+func (s *ServiceSuite) TestHoverReadsTheScreenWithoutAWindowId() {
+	// The app is already in front for a hover, so a window without an id
+	// needs no second trip forward to be captured.
+	s.read()
+	noID := testWin
+	noID.ID = 0
+	s.p.On("UserIdle").Return(time.Hour).Once()
+	s.cursor(Point{175, 80})
+	s.p.On("Activate", textEdit).Return(nil).Once()
+	s.p.On("Frontmost", textEdit).Return(true).Once()
+	s.p.On("Hover", Point{175, 80}).Return(nil).Once()
+	s.hoverRead(noID, true)
+	s.p.On("Activate", finder).Return(nil).Once()
+	var res proto.ActionResult
+	s.ok(s.act(proto.ActionParams{Action: proto.ActionHover, Index: 2}), &res)
+	require.NotNil(s.T(), res.State)
+}
+
+func (s *ServiceSuite) TestHoverParamErrors() {
+	tests := []struct {
+		name string
+		p    proto.ActionParams
+		code string
+		msg  string
+	}{
+		{"capture", proto.ActionParams{Action: proto.ActionHover, Index: 2, Capture: "video"}, proto.CodeInvalidParams, "capture must be text, image or both"},
+		{"negative dwell", proto.ActionParams{Action: proto.ActionHover, Index: 2, DwellMS: -1}, proto.CodeInvalidParams, "dwell_ms must be between 0 and 10000"},
+		{"long dwell", proto.ActionParams{Action: proto.ActionHover, Index: 2, DwellMS: 10001}, proto.CodeInvalidParams, "dwell_ms must be between 0 and 10000"},
+		{"target", proto.ActionParams{Action: proto.ActionHover}, proto.CodeInvalidParams, "hover needs an element index or x and y"},
+		{"unknown element", proto.ActionParams{Action: proto.ActionHover, Index: 9}, proto.CodeElementNotFound, "no element [9]"},
+		{"outside the window", proto.ActionParams{Action: proto.ActionHover, Index: 4}, proto.CodeElementNotFound, "element [4] is outside the window"},
+	}
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+			s.read()
+			s.fails(s.act(tc.p), tc.code, tc.msg)
+			s.p.AssertNotCalled(s.T(), "Hover", mock.Anything)
+			s.p.AssertNotCalled(s.T(), "Activate", mock.Anything)
+		})
+	}
+	s.SetupTest()
+	s.running()
+	s.fails(s.act(proto.ActionParams{Action: proto.ActionHover, Index: 1}), proto.CodeNoState, "read the window state")
+}
+
+func (s *ServiceSuite) TestHoverPutsEverythingBackOnFailure() {
+	tests := []struct {
+		name   string
+		expect func()
+		msg    string
+	}{
+		{"the pointer can't be put there", func() {
+			s.p.On("Hover", Point{175, 80}).Return(errors.New("platform failed")).Once()
+		}, "platform failed"},
+		{"the window can't be read", func() {
+			s.p.On("Hover", Point{175, 80}).Return(nil).Once()
+			s.p.On("FocusedWindow", textEdit).Return(Window{}, errors.New("no window")).Once()
+		}, "no window"},
+	}
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+			s.read()
+			s.p.On("UserIdle").Return(time.Hour).Once()
+			s.cursor(Point{175, 80})
+			s.p.On("Activate", textEdit).Return(nil).Once()
+			s.p.On("Frontmost", textEdit).Return(true).Once()
+			s.p.On("Activate", finder).Return(nil).Once()
+			tc.expect()
+			s.fails(s.act(proto.ActionParams{Action: proto.ActionHover, Index: 2}), proto.CodeInternal, tc.msg)
+			s.p.AssertExpectations(s.T())
+		})
+	}
+}
+
+func (s *ServiceSuite) TestHoverWaitsForTheUser() {
+	s.read()
+	s.p.On("UserIdle").Return(time.Duration(0))
+	s.fails(s.act(proto.ActionParams{Action: proto.ActionHover, Index: 2}), proto.CodeUserActive, "the user is using the keyboard or mouse")
+	s.p.AssertNotCalled(s.T(), "Hover", mock.Anything)
+	s.p.AssertNotCalled(s.T(), "Activate", mock.Anything)
+}
+
+func (s *ServiceSuite) TestHoverPlatformErrorsOnTheWayIn() {
+	s.read()
+	s.p.On("UserIdle").Return(time.Hour).Once()
+	s.cursor(Point{175, 80})
+	s.p.On("Activate", textEdit).Return(errors.New("platform failed")).Once()
+	s.fails(s.act(proto.ActionParams{Action: proto.ActionHover, Index: 2}), proto.CodeInternal, "platform failed")
+	s.p.AssertNotCalled(s.T(), "Hover", mock.Anything)
+}
+
+func (s *ServiceSuite) TestBatchRefusesHover() {
+	s.read()
+	s.fails(s.batch(context.Background(),
+		proto.ActionParams{Action: proto.ActionClick, Index: 3},
+		proto.ActionParams{Action: proto.ActionHover, Index: 2},
+	), proto.CodeInvalidParams, "action 2 (hover), so nothing was sent: hover reads while the pointer is over its target")
+	s.p.AssertNotCalled(s.T(), "Press", mock.Anything)
+	s.p.AssertNotCalled(s.T(), "Hover", mock.Anything)
+}
+
 func (s *ServiceSuite) TestActionPlatformErrors() {
 	unsupported := &proto.Error{Code: proto.CodeUnsupported, Message: "not here"}
 	tests := []struct {

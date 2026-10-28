@@ -67,6 +67,8 @@ func (m *mockPlatform) Click(p Point, button Button, count int) error {
 	return m.Called(p, button, count).Error(0)
 }
 
+func (m *mockPlatform) Hover(p Point) error { return m.Called(p).Error(0) }
+
 func (m *mockPlatform) Drag(from, to Point) error { return m.Called(from, to).Error(0) }
 
 func (m *mockPlatform) Scroll(p Point, dx, dy int) error { return m.Called(p, dx, dy).Error(0) }
