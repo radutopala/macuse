@@ -53,6 +53,7 @@ const (
 	ActionKey         = "key"
 	ActionScroll      = "scroll"
 	ActionDrag        = "drag"
+	ActionHover       = "hover"
 	ActionSetValue    = "set_value"
 )
 
@@ -163,7 +164,20 @@ type ActionParams struct {
 	// Foreground sends keys with the app frontmost, for apps that drop
 	// keys in the background.
 	Foreground bool `json:"foreground,omitempty"`
+	// DwellMS is how long a hover waits with the pointer over its target
+	// before reading, in milliseconds; 0 means DefaultDwellMS.
+	DwellMS int `json:"dwell_ms,omitempty"`
+	// Capture is what a hover reads while the pointer is still over its
+	// target: text, image (default) or both, as for GetStateParams.
+	Capture string `json:"capture,omitempty"`
 }
+
+// Hover dwell, in milliseconds: the default outlasts the usual tooltip delays,
+// and MaxDwellMS keeps a call from holding the app for long.
+const (
+	DefaultDwellMS = 600
+	MaxDwellMS     = 10000
+)
 
 // MaxBatch caps the actions in one BatchParams.
 const MaxBatch = 100
@@ -176,9 +190,11 @@ type BatchParams struct {
 	Actions  []ActionParams `json:"actions"`
 }
 
-// ActionResult is the MethodAction and MethodBatch result.
+// ActionResult is the MethodAction and MethodBatch result. State is what a
+// hover read while the pointer was over its target.
 type ActionResult struct {
 	Message string `json:"message"`
+	State   *State `json:"state,omitempty"`
 }
 
 // Permissions reports the macOS privacy grants the helper holds.

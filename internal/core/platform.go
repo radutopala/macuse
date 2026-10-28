@@ -72,6 +72,9 @@ type Platform interface {
 	MoveCursor(p Point) (was Point)
 	// The input below goes to the frontmost app, as the user's would.
 	Click(p Point, button Button, count int) error
+	// Hover moves the pointer onto p with a mouse-moved event, so what shows
+	// on hover can open. It leaves the pointer there; MoveCursor puts it back.
+	Hover(p Point) error
 	Drag(from, to Point) error
 	Scroll(p Point, dx, dy int) error
 	Key(c Combo) error

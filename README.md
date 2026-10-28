@@ -111,6 +111,7 @@ the Mac's loopback, so `serve` doesn't need to listen on any other interface.
 | `start_app` | Launch an app by bundle id                                       |
 | `get_state` | The focused window's element tree, a screenshot, or both          |
 | `click`     | Click an element, or a point in the last screenshot              |
+| `hover`     | Rest the pointer on an element or point, and see what shows      |
 | `type`      | Type text into an element or the focused field                   |
 | `press_key` | Press keys and shortcuts, such as `cmd+s`                        |
 | `scroll`    | Scroll at an element or point                                    |

@@ -840,6 +840,15 @@ func (p *Platform) Click(at core.Point, button core.Button, count int) error {
 	return nil
 }
 
+// Hover moves the pointer onto at and leaves it there.
+func (p *Platform) Hover(at core.Point) error {
+	p.do(func() {
+		p.mouse(kCGEventMouseMoved, at, kCGMouseButtonLeft, 0)
+		time.Sleep(hitTestSettle)
+	})
+	return nil
+}
+
 // ClickTo clicks count times at at inside app's windows without activating
 // it first, the mouse equivalent of TypeTo.
 func (p *Platform) ClickTo(app proto.App, at core.Point, button core.Button, count int) error {
